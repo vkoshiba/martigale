@@ -1,0 +1,3206 @@
+//+------------------------------------------------------------------+
+//|                                      Bands+Envelope - Victor.mq5 |
+//|                                  Copyright 2022, Junior Domingos |
+//|                                      juniordomingos738@gmail.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2022, Rafa,Cris, Victor"
+#property link      "victor.a.koshiba@gmail.com"
+#property version   "1.00"
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+#include <Trade/Trade.mqh>
+CTrade trade;
+//---
+
+
+const datetime                expiracao = D'2024.06.01';//Data de expiração das licenças no formato "AAAA.MM.DD"
+
+const long                    contas[] = {0};//Contas separadas por virgula, se tiver o valor 0 funciona em qualquer conta
+
+
+
+
+//---
+enum enum_nao_sim
+{
+   nao,//Não
+   sim//Sim
+};
+enum enum_estrategia
+{
+   _fora_dentro,//Fora/Dentro
+   _dentro_fora,//Dentro/Fora
+   _fora,//Fora
+   _fora_dentro_romp,//Fora/Dentro+Rompimento Min e Max
+  
+};
+//---
+enum enum_unidade_medida
+{
+   _unidade_pontos,//Pontos(B3)
+   _unidade_pips,//Pontos(Forex)
+};
+//---
+enum enum_tipo_saida
+{
+   _saida_nenhum,//Desativada
+   _saida_automatica,//Automática
+   _saida_fixa,//Fixa
+};
+//---
+enum enum_indicador
+{
+   _indicador_filtro,//Filtro
+   _indicador_sinal,//Sinal
+};
+//---
+input string               nome_config = " ";                        //Nome da configuração
+//---
+input group                "Configuração de Inicialização"
+input enum_unidade_medida  medida_geral = _unidade_pontos;           //Unidade de medida   
+input double               lote = 1;                                 //Volume
+input enum_nao_sim         iniciar_dia_zerado = nao;                 //Iniciar dia zerado?
+input enum_nao_sim         exibir_painel = sim;                      //Exibir painel?
+input int                  magic_number = 2022;                      //Número Mágico(-1 Aleatório)
+//---
+input group                "Alvos";
+input enum_nao_sim         sair_inversao_sinal = nao;                //Sair na inversão do sinal?
+input double               take = 100;                               //Take Profit
+input double               stop = 100;                               //Stop Loss
+//---
+input group                "Spread";
+input double               limite_spread = 0;                        //Spread máximo[0=Desabilitado] 
+input int                  rf = 0;                                   //Aguardar fechamento = 1 // Por Tick = 0  
+//---
+input group                "Horário de Negociação";
+input enum_nao_sim         usar_horario_negociacao = nao;            //Ativar?
+input string               inicio = "09:00";                         //Inicia envio das ordens (HH:MM)
+input string               termino = "16:00";                        //Encerra envio das ordens (HH:MM)
+input string               fechamento = "17:00";                     //Fechar todas as posições (HH:MM)
+//---
+input group                "Metas Diárias";
+input double               ganho_diaria = 0;                         //Limite de Ganho R$
+input double               perda_diaria = 0;                         //Limite de Perda R$
+input enum_nao_sim         fechar_op_meta_ganho = sim;               //Fechar operação ao atingir meta de ganho?
+input enum_nao_sim         fechar_op_meta_perda = sim;               //Fechar operação ao atingir meta de perda?      
+//---
+input group                "Dias da Semana";
+input enum_nao_sim         operar_todos_dias = sim;                  //Operar todos os dias?
+input enum_nao_sim         segunda_feira = nao;                      //Negociar Segunda-Feira?
+input enum_nao_sim         terca_feira = nao;                        //Negociar Terça-Feira?
+input enum_nao_sim         quarta_feira = nao;                       //Negociar Quarta-Feira?
+input enum_nao_sim         quinta_feira = nao;                       //Negociar Quinta-Feira?
+input enum_nao_sim         sexta_feira = nao;                        //Negociar Sexta-Feira?
+//---
+input group                "Break Even";
+input double               distancia_break1 = 0;                           //Distância
+input double               pontos_break1 = 0;                              //Ganho
+//---
+input group                "Stop Móvel";
+input double               distancia_stop = 0;                             //Distância para ativar?
+input double               pontos = 0;                                     //Passo
+//---
+input group                "Martingale";
+input enum_nao_sim         usar_martingale = sim;                    //Usar martingale
+input double               multiplicador_martingale = 2;             //Fator de multiplicação
+input int                  qtd_martingale = 5;                       //Qtd máxima de martingale 
+//---
+/*input group                "Preço Médio";
+input enum_nao_sim         usar_PM = nao;                            //Usar Preço Médio
+input double               lote_total = 36;                          //Lote máximo
+input double               preco_medio = 2;                          //Fator de multiplicação*/
+//---
+input group                "Saída Parcial";
+input enum_tipo_saida      tipo_saida_parcial = _saida_nenhum;       //Tipo de saída
+input double               porcentagem_saida = 0;                    //Porcentagem acima/abaixo do valor calculado(%)   
+input double               saida1 = 0;                               //1 - Distância
+input double               lote_saida1 = 0;                          //1 - Volume
+input double               saida2 = 0;                               //2 - Distância
+input double               lote_saida2 = 0;                          //2 - Volume
+input double               saida3 = 0;                               //3 - Distância
+input double               lote_saida3 = 0;                          //3 - Volume
+input double               saida4 = 0;                               //4 - Distância
+input double               lote_saida4 = 0;                          //4 - Volume
+input double               saida5 = 0;                               //5 - Distância
+input double               lote_saida5 = 0;                          //5 - Volume
+//---
+input group                "Bandas de Bollinger";
+input enum_nao_sim         usar_bands = sim;                         //Usar Bandas de Bollinger?
+input enum_nao_sim         bands_invertido = nao;                    //Sinal invertido?
+input enum_indicador       indicador_bands = _indicador_sinal;       //Usar indicador como   
+input enum_estrategia      estrategia_bands = _dentro_fora;          //Estratégia
+input int                  periodo_bands =   14;                     //Periodo
+input int                  deslocamento_bands = 0;                   //Deslocamento
+input double               desvio_bands = 2.500;                     //Desvio
+input ENUM_APPLIED_PRICE   preco_bands = PRICE_CLOSE;                //Preço
+input ENUM_TIMEFRAMES      tempo_bands = PERIOD_CURRENT;             //Tempo Gráfico
+input int                  npb = 2;                                  //Nº de Velas p/ Suporte e Resistencia
+
+//---
+input group                "Envelope";
+input enum_nao_sim         usar_envelope = nao;                      //Usar o Envelope?
+input enum_nao_sim         envelope_invertido = nao;                 //Sinal invertido?
+input enum_indicador       indicador_envelope = _indicador_filtro;   //Usar indicador como
+input enum_estrategia      estrategia_envelope = _fora_dentro;       //Estratégia
+input int                  periodo_envelope = 3;                     //Periodo
+input int                  deslocamento_envelope = 0;                //Deslocamento
+input double               desvio_envelope = 0.050;                  //Desvio
+input ENUM_MA_METHOD       metodo_envelope = MODE_EMA;               //Tipo da Média
+input ENUM_APPLIED_PRICE   preco_envelope = PRICE_CLOSE;             //Preço
+input ENUM_TIMEFRAMES      tempo_envelope = PERIOD_CURRENT;          //Tempo Gráfico
+input int                  npe = 2;                                  //Nº Velas para Suporte e Resistencia
+//---
+int numero_magico;
+//---
+int dia_anterior;
+//---
+MqlDateTime horaAtual;
+//---
+MqlTick ticks;
+//---
+MqlRates rates[];
+//---
+datetime candle_atual;
+bool stops_ajustados;
+//---
+string comeco, comeco_mes, comeco_semana;
+//---
+bool conta_netting;
+//---
+string tipo_conta;
+
+//---
+MqlDateTime horaInicio;
+MqlDateTime horaTermino;
+MqlDateTime horaFechamento;
+
+//---
+//---
+bool show_painel;
+//---
+const int height_painel = 270;
+int altura_painel = height_painel;
+//---
+struct DadosOperacao
+{
+   double profit_total;
+   double volume_total;
+   double total_operacao;
+   double total_acertos;
+   string operacao_atual;
+};
+
+int handle_bands;
+int handle_envelope;
+//---
+bool meta_atingida;
+//---
+datetime data_inicio_martingale;
+//---
+double volume_saida_parcial, preco_saida_parcial;
+//---
+double array_distancia_saida[5], array_volume_saida[5];
+//---
+double volume_executado;
+//---
+string _Symbols;
+//---
+long ultimo_numero_magico;
+//---
+int total_indicadores;
+//---
+double preco_stop_movel;
+//---
+int OnInit()
+{
+   
+   _Symbols = _Symbol;
+   
+   
+   if(!ContaCadastrada())
+   {
+      long login = AccountInfoInteger(ACCOUNT_LOGIN);
+      Print("Conta [" + (string)login + "] não cadastrada entre em contato com o proprietário");
+      MessageBox("Conta [" + (string)login + "] não cadastrada entre em contato com o proprietário");
+      return INIT_FAILED;
+   }
+   
+   stops_ajustados = true;
+   
+   ArraySetAsSeries(rates, true);
+
+   if(magic_number < 0)
+      numero_magico = MathRand();
+   else
+      numero_magico = magic_number;
+   trade.SetExpertMagicNumber(numero_magico);
+
+   long filling;
+   SymbolInfoInteger(_Symbols, SYMBOL_FILLING_MODE, filling);
+   if(filling == SYMBOL_FILLING_FOK)
+      trade.SetTypeFilling(ORDER_FILLING_FOK);
+   else if(filling == SYMBOL_FILLING_IOC)
+      trade.SetTypeFilling(ORDER_FILLING_IOC);
+   else
+      trade.SetTypeFilling(ORDER_FILLING_RETURN);
+//Verifica se a conta é netting ou hedge
+   if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) == ACCOUNT_MARGIN_MODE_RETAIL_NETTING)
+      conta_netting = true;
+   else
+      conta_netting = false;
+
+   if(conta_netting)
+   {
+      double existe_mesmo_robo = GlobalVariableCheck(_Symbols);
+      if(existe_mesmo_robo)
+      {
+         Print("Contas do tipo Netting não podem ser utilizados mais de um robô simultâneo no mesmo ativo!");
+         MessageBox("Contas do tipo Netting não podem ser utilizados mais de um robô simultâneo no mesmo ativo!");
+         return INIT_FAILED;
+      }
+      else
+      {
+         GlobalVariableSet(_Symbols, 1);
+      }
+   }
+
+   //Verifica se está realizando backetest sem modo visual
+   if(!MQLInfoInteger(MQL_VISUAL_MODE) && MQLInfoInteger(MQL_TESTER))
+      show_painel = false;
+   else
+      show_painel = true;
+      
+   if(exibir_painel && show_painel)
+   {
+      CriarPainel();
+      AtualizarPainel();
+   }
+
+   EventSetTimer(1);
+
+   TimeToStruct(StringToTime(inicio), horaInicio);
+   TimeToStruct(StringToTime(termino), horaTermino);
+   TimeToStruct(StringToTime(fechamento), horaFechamento);
+   if(horaInicio.hour > horaTermino.hour)
+   {
+      MessageBox("Horários de Negociação inválidos");
+      Print("Horários de Negociação inválidos");
+      return INIT_FAILED;
+   }
+
+   if(usar_bands)
+   {
+      handle_bands = iBands(_Symbols, tempo_bands, periodo_bands, deslocamento_bands, desvio_bands, preco_bands);
+      if(handle_bands == INVALID_HANDLE)
+      {
+         Mostre("Indicador Bollinger Bands Inválido! Corrija nos paramêtros de entrada.");
+         MessageBox("Indicador Bollinger Bands Inválido! Corrija nos paramêtros de entrada.");
+         return INIT_FAILED;
+      }
+      ChartIndicatorAdd(0, 0, handle_bands);
+   }
+
+   if(usar_envelope)
+   {
+      handle_envelope = iEnvelopes(_Symbols, tempo_envelope, periodo_envelope, deslocamento_envelope, metodo_envelope, preco_envelope, desvio_envelope);
+      if(handle_envelope == INVALID_HANDLE)
+      {
+         Mostre("Indicador Evenlope inválido! Corrija nos parâmetros de entrada.");
+         MessageBox("Indicador Evenlope inválido! Corrija nos parâmetros de entrada.");
+      }
+      ChartIndicatorAdd(0, 0, handle_envelope);
+   }
+   
+
+//+------------------------------------------------------------------+
+//|         ARRAY PARA SAÍDAS PARCIAIS                               |
+//+------------------------------------------------------------------+
+
+   int index_saida = 0;
+
+   array_distancia_saida[index_saida] = saida1;
+   array_volume_saida[index_saida] = lote_saida1;
+   index_saida++;
+
+   array_distancia_saida[index_saida] = saida2;
+   array_volume_saida[index_saida] = lote_saida2;
+   index_saida++;
+
+   array_distancia_saida[index_saida] = saida3;
+   array_volume_saida[index_saida] = lote_saida3;
+   index_saida++;
+
+   array_distancia_saida[index_saida] = saida4;
+   array_volume_saida[index_saida] = lote_saida4;
+   index_saida++;
+
+   array_distancia_saida[index_saida] = saida5;
+   array_volume_saida[index_saida] = lote_saida5;
+   index_saida++;   
+   
+   
+   
+   if(ultimo_numero_magico != numero_magico)
+   {
+      ultimo_numero_magico = numero_magico;
+      meta_atingida = false;
+   }
+   
+   ChartSetInteger(0, CHART_SHOW_GRID, false);
+   ChartRedraw();
+   tipo_conta = (AccountInfoInteger(ACCOUNT_MARGIN_MODE) == ACCOUNT_MARGIN_MODE_RETAIL_NETTING) ? "Netting" : "Hedge";
+   Print(TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES) + " " + __FILE__ + " adicionado com sucesso no ", _Symbols, ", Número mágico: ", numero_magico, ", Tipo conta: ", tipo_conta, ", Horário Inicio: ", inicio, ", Término: ", termino);
+   
+   
+   total_indicadores = usar_envelope + usar_bands;
+   
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   GlobalVariableDel(_Symbols);
+   Print(TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES) + " " + __FILE__ + " removido com sucesso no ", _Symbols, ", Número mágico: ", numero_magico, ", Tipo conta: ", tipo_conta);
+   Comment("");
+   for(int i = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); i >= 0 ; i--)
+   {
+      for(int j = ChartIndicatorsTotal(0, i); j >= 0; j--)
+      {
+         ChartIndicatorDelete(0, i, ChartIndicatorName(0, i, 0));
+      }
+   }
+   ObjectDelete(0, "inicio");
+   ObjectDelete(0, "termino");
+   ObjectDelete(0, "fechamento");
+   DeletarPainel();
+
+   DeletarLinhaParcial();
+   DeletarLinhaParcialAutomatica();
+   
+   ChartRedraw();
+   Comment("");
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+//---
+   TimeToStruct(TimeCurrent(), horaAtual);
+
+   if(CopyRates(_Symbols, _Period, 0, 100, rates) <= 0)
+      return;
+      
+   
+   if(!SymbolInfoTick(_Symbols, ticks))
+      return;
+
+   //Atualiza o painel pelo ontick se estiver realizando backtest visual
+   if(MQLInfoInteger(MQL_VISUAL_MODE) && exibir_painel && show_painel)
+      AtualizarPainel();
+      
+      
+   //Reincia as variavéis a cada novo dia
+   if(dia_anterior != horaAtual.day)
+   {
+      
+      
+      dia_anterior = horaAtual.day;
+      
+      if(InicioDia())
+      {  
+         //Verifica se tinha algum valor na data para iniciar o martingale
+         if(comeco != NULL)
+         {   
+            //Verifica se a meta diária do dia anterior foi de perda
+            if(MetaAtingida() && LucroDia() < 0)
+            {
+               data_inicio_martingale = StringToTime(IntegerToString(horaAtual.year) + "." + IntegerToString(horaAtual.mon) + "." + IntegerToString(horaAtual.day));   
+            }   
+         }      
+      }
+      
+      if(TimeCurrent() > expiracao)
+      {
+      
+         MessageBox("Robô expirado no dia " + (string)expiracao + " entre em contato com o proprietário");
+         Print("Robô expirado no dia " + (string)expiracao + " entre em contato com o proprietário");
+         ExpertRemove();
+      }
+      
+      
+      meta_atingida = false;
+
+      //Defini o começo do histórico do dia
+      string hora = IntegerToString(horaAtual.year) + "." + IntegerToString(horaAtual.mon) + "." + IntegerToString(horaAtual.day);
+      comeco = hora;
+
+      //Defini onde começa o histórico do mês
+      comeco_mes = IntegerToString(horaAtual.year) + "." + IntegerToString(horaAtual.mon) + "." + IntegerToString(1);
+
+      int reduzir_dias = 0;
+
+      if(horaAtual.day_of_week > 1)
+      {
+         reduzir_dias = (horaAtual.day_of_week - 1) * 86400;
+         comeco_semana = TimeToString(TimeCurrent() - reduzir_dias);
+      }
+      else
+         comeco_semana = TimeToString(TimeCurrent());
+      
+      
+      //Verifica se irá iniciar o dia zerado com as configurações de martingale
+      if(iniciar_dia_zerado)
+      {
+         //Verifica se é o inicio do dia ou se não foi rellizada nenhuma operação no dia
+         if(InicioDia() || !OperacaoRealizadaDia())
+         {
+            data_inicio_martingale = StringToTime(comeco);   
+         }   
+      }      
+      
+      
+
+      //Coloca as linhas de inicio e termino
+      if(usar_horario_negociacao)
+      {
+         ObjectDelete(0, "inicio");
+         ObjectDelete(0, "termino");
+         ObjectDelete(0, "fechamento");
+
+         string linha_inicio = IntegerToString(horaAtual.year) + "." + IntegerToString(horaAtual.mon) + "." + IntegerToString(horaAtual.day) + " " + inicio;
+         string linha_termino = IntegerToString(horaAtual.year) + "." + IntegerToString(horaAtual.mon) + "." + IntegerToString(horaAtual.day) + " " + termino;
+         string linha_fechamento = IntegerToString(horaAtual.year) + "." + IntegerToString(horaAtual.mon) + "." + IntegerToString(horaAtual.day) + " " + fechamento;
+
+         if(ObjectCreate(0, "inicio", OBJ_VLINE, 0, StringToTime(linha_inicio), 0))
+         {
+            ObjectSetInteger(0, "inicio", OBJPROP_BACK, true);
+            ObjectSetInteger(0, "inicio", OBJPROP_COLOR, clrLightBlue);
+         }
+
+         if(ObjectCreate(0, "termino", OBJ_VLINE, 0, StringToTime(linha_termino), 0))
+         {
+            ObjectSetInteger(0, "termino", OBJPROP_BACK, true);
+            ObjectSetInteger(0, "termino", OBJPROP_COLOR, clrYellow);
+         }
+         if(fechamento != "")
+         {
+            if(fechamento != "0")    if(ObjectCreate(0, "fechamento", OBJ_VLINE, 0, StringToTime(linha_fechamento), 0))
+               {
+                  ObjectSetInteger(0, "fechamento", OBJPROP_BACK, true);
+               }
+         }
+
+      }
+      
+   }
+   
+   
+   
+   //Verifica se está dentro do horário de negociação
+   if(HorarioNegociacao())
+   {
+      //Garante que não seja aberta mais de uma operação no mesmo candle
+      if(candle_atual != rates[0].time)
+      {
+         //Verifica se está sendo usado algum indicador
+         if(total_indicadores != 0)
+         {
+            //Verifica se não existe nenhum ordem ou posição
+            if(SemPosicao() && SemOrdem())
+            {
+               //Verifica se irá negociar no dia atual
+               if(OperarDia())
+               {
+                  //Verifica se a meta diária não foi atingida
+                  if(!MetaAtingida())
+                  {
+                     //Verificas se o spread está dentro dos valores aceitaveis
+                     if(SpreadAceitavel())
+                     {
+                        //Obtem o sinal dos indicadores
+                        int sinal = Envelope() + Bands();
+                        
+                        if(sinal == total_indicadores)
+                           Compra();
+                        else if(sinal == total_indicadores * -1)
+                           Venda();   
+                     }      
+                  }
+               }   
+            }
+         }   
+      }
+   }
+   else if(horaAtual.hour == horaFechamento.hour && horaAtual.min >= horaFechamento.min)
+   {
+      if(usar_horario_negociacao)
+      {
+         if(fechamento != "")
+         {
+            if(fechamento != "0")
+            {
+               if(!SemPosicao())
+               {
+                  Print("Fechando Posição... Horário de Fechamento");
+                  FecharPosicao();
+               }
+
+               if(!SemOrdem())
+               {
+                  Print("Deletando Ordem... Horário de Fechamento");
+                  DeletarOrdem();
+               }
+            }
+         }
+      }
+   }
+
+
+   //Verifica se existe posição
+   if(!SemPosicao())
+   {
+
+      if(!stops_ajustados)
+      {
+         if(AjustarStopsIniciais())
+            stops_ajustados = true;
+      }
+      
+      
+      //Realiza o breakeven
+      if(distancia_break1 > 0)
+         BreakEven();
+         
+      //Realiza o Stop Móvel
+      if(distancia_stop > 0)
+         StopMovel();
+      
+      
+      
+      //Verifica se irá realizar a saída na inversão do sinal 
+      if(sair_inversao_sinal)
+      {
+         int sinal = Envelope() + Bands();
+         int tipo_posicao = TipoPosicao();
+         
+         if(sinal >= 1 && tipo_posicao == -1)
+         {
+            Print("Fechando posição... Inversão do sinal para compra");
+            FecharPosicao();
+            
+            if(!SemOrdem())
+               DeletarOrdem();
+            
+            DeletarLinhaParcial();
+            DeletarLinhaParcialAutomatica();   
+         }
+         else if(sinal <= -1 && tipo_posicao == 1)
+         {
+            Print("Fechando posição... Inversão do sinal para venda");
+            FecharPosicao();
+            
+            if(!SemOrdem())
+               DeletarOrdem();
+            
+            DeletarLinhaParcial();
+            DeletarLinhaParcialAutomatica();
+         }
+      }
+      
+      //Verifica se está sendo usado a meta diária de ganho ou perda
+      if(ganho_diaria != 0 || perda_diaria != 0)
+         VerificarMetaDiaria();
+      
+      
+      if(!conta_netting)
+      {
+         if(tipo_saida_parcial == _saida_automatica)
+            VerificarSaidaParcialAutomatica();   
+         
+         if(tipo_saida_parcial == _saida_fixa)
+            VerificarSaidaParcial();
+      }   
+      
+   }
+   else
+   {
+      
+      DeletarLinhaParcialAutomatica();
+      DeletarLinhaParcial();
+      
+      //Verifica se existe ordem para ser deletada já que não exite posição
+      if(!SemOrdem())
+      {
+         Print("Deletando Ordem... Não existe posição");
+         DeletarOrdem();
+      }
+
+   }
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   if(!MQLInfoInteger(MQL_VISUAL_MODE) && exibir_painel && show_painel)
+      AtualizarPainel();
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void Compra()
+{
+   double lote_calculado = CalcularLote(lote);
+   
+   double preco = ticks.ask;
+   double sl = ObterStopLoss(1, preco, lote_calculado);
+   double tp = ObterTakeProft(1, preco, lote_calculado);
+   
+   //Verifica se o stop loss ou take prfot tem um valor válido
+   if((sl > ticks.bid && sl != 0) || (tp < ticks.bid && tp != 0))
+      return;
+   //Verifica se o stop loss ou take prfot tem um valor menor que zero
+   if(sl < 0 || tp < 0)
+      return;
+
+   double margem;
+   bool margem_necessaria = MargemNecessaria(ORDER_TYPE_BUY, lote_calculado, preco, margem);
+   static bool mensagem_exibida = false;
+   
+   
+   //Verifica se tem margem para realizar esta operação
+   if(margem_necessaria)
+   {
+      if(trade.Buy(lote_calculado, _Symbols, preco, sl, tp, "Compra[entrada]"))
+      {
+         Mostre("Compra realizada com sucesso no " + _Symbols + ", Preço: " + (string)preco + ", Volume: " + (string)lote_calculado);
+         //Controle do candle para não abrir mais de uma operação no mesmo candle
+         candle_atual = rates[0].time;
+         mensagem_exibida = false;
+
+         stops_ajustados = false;
+         
+         //Controle do stop móvel
+         preco_stop_movel = distancia_stop;
+         
+         volume_saida_parcial = 0;
+         preco_saida_parcial = 0;
+         volume_executado = lote_calculado;
+
+      }
+      else
+         Print("Erro ao enviar ordem de compra a mercado no ", _Symbols, ", Volume: ", lote_calculado, ", Ask: ", preco, ", Bid: ", ticks.bid, ", Preco atual: ", rates[0].close, "  SL: ", sl, "  TP: ", tp, "   ERRO: ", GetLastError());
+   }
+   else
+   {
+      if(!mensagem_exibida)
+      {
+         mensagem_exibida = true;
+         Print("Erro ao realizar compra com o volume ", lote_calculado, " no ", _Symbols, ", você não possui margem suficiente para realizar esta operação, Margem Livre: ", AccountInfoDouble(ACCOUNT_MARGIN_FREE), ", Margem necessária: ", margem);
+      }
+   }
+}
+
+//---
+void Venda()
+{
+   double lote_calculado = CalcularLote(lote);
+   double preco = ticks.bid;
+   double sl = ObterStopLoss(-1, preco, lote_calculado);
+   double tp = ObterTakeProft(-1, preco, lote_calculado);
+
+//Verifica se o stop loss ou take prfot tem um valor positivo
+   if((sl < ticks.ask && sl != 0) || (tp > ticks.ask && tp != 0))
+      return;
+   //Verifica se o stop loss ou take prfot tem um valor menor que zero
+   if(sl < 0 || tp < 0)
+      return;
+
+   double margem;
+   bool margem_necessaria = MargemNecessaria(ORDER_TYPE_SELL, lote_calculado, preco, margem);
+   static bool mensagem_exibida = false;
+
+   //Verifica se tem margem para realizar esta operação
+   if(margem_necessaria)
+   {
+      if(trade.Sell(lote_calculado, _Symbols, preco, sl, tp, "Venda[entrada]"))
+      {
+         Mostre("Venda realizada com sucesso no " + _Symbols + ", Preço: " + (string)preco + ", Volume: " + (string)lote_calculado);
+         mensagem_exibida = false;
+         //Controle do candle para não abrir mais de uma operação no mesmo candle
+         candle_atual = rates[0].time;
+         stops_ajustados = false;
+         
+         //Controle do stop móvel
+         preco_stop_movel = distancia_stop;
+         
+         volume_saida_parcial = 0;
+         preco_saida_parcial = 0;
+         volume_executado = lote_calculado;
+
+      }
+      else
+         Print("Erro ao enviar ordem de venda a mercado no ", _Symbols, ", Volume: ", lote_calculado, ", Ask: ", preco, ", Bid: ", ticks.bid, ", Preco atual: ", rates[0].close, "  SL: ", sl, "  TP: ", tp, "   ERRO: ", GetLastError());
+   }
+   else
+   {
+      if(!mensagem_exibida)
+      {
+         mensagem_exibida = true;
+         Print("Erro ao realizar venda com o volume ", lote_calculado, " no ", _Symbols, ", você não possui margem suficiente para realizar esta operação, Margem Livre: ", AccountInfoDouble(ACCOUNT_MARGIN_FREE), ", Margem necessária: ", margem);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool BuyLimit(double l, double preco, double sl, double tp, string comment = "Buy Limit")
+{
+   double margem;
+   bool margem_necessaria = MargemNecessaria(ORDER_TYPE_BUY_LIMIT, l, preco, margem);
+   static bool mensagem_exibida = false;
+   //Verifica se tem margem para realizar esta operação
+   if(margem_necessaria)
+   {
+      //Verifica se o preço é válido para posicionar a ordem pendente
+      if(ticks.ask > preco)
+      {
+         if(trade.BuyLimit(l, preco, _Symbols, sl, tp, ORDER_TIME_GTC, 0, comment))
+         {
+            Print("Sucesso ao posicionar ", comment, " no preço ", preco, ", Volume: ", l, " SL: ", sl, "  TP: ", tp);
+            mensagem_exibida = false;
+            return true;
+         }
+         else
+         {
+            Print("Erro ao posicionar ", comment, " no preço ", preco, "	   ->Last: ", rates[0].close, "	   ->SL: ", sl, "	   ->TP: ", tp, "	   ->Erro: ", GetLastError());
+            return false;
+         }
+      }
+      else
+         return false;
+   }
+   else
+   {
+      if(!mensagem_exibida)
+      {
+         mensagem_exibida = true;
+         Print("Erro ao posicionar buy limit com o volume ", l, " no ", _Symbols, ", você não possui margem suficiente para realizar esta operação, Margem Livre: ", AccountInfoDouble(ACCOUNT_MARGIN_FREE), ", Margem necessária: ", margem);
+         return false;
+      }
+      else
+         return false;
+   }
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool SellLimit(double l, double preco, double sl, double tp, string comment = "Sell Limit")
+{
+
+   double margem;
+   bool margem_necessaria = MargemNecessaria(ORDER_TYPE_SELL_LIMIT, l, preco, margem);
+   static bool mensagem_exibida = false;
+   //Verifica se tem margem para realizar esta operação
+   if(margem_necessaria)
+   {
+      //Verifica se o preço é válido para posicionar a ordem pendente
+      if(ticks.bid < preco)
+      {
+         if(trade.SellLimit(l, preco, _Symbols, sl, tp, ORDER_TIME_GTC, 0, comment))
+         {
+            Print("Sucesso ao posicionar ", comment, " no preço ", preco, ", Volume: ", l, " SL: ", sl, "  TP: ", tp);
+            mensagem_exibida = false;
+            return true;
+         }
+         else
+         {
+            Print("Erro ao posicionar ", comment, " no preço ", preco, "	   ->Last: ", rates[0].close, "	   ->SL: ", sl, "	   ->TP: ", tp, "	   ->Erro: ", GetLastError());
+            return false;
+         }
+      }
+      else
+         return false;
+   }
+   else
+   {
+      if(!mensagem_exibida)
+      {
+         mensagem_exibida = true;
+         Print("Erro ao posicionar sell limit com o volume ", l, " no ", _Symbols, ", você não possui margem suficiente para realizar esta operação, Margem Livre: ", AccountInfoDouble(ACCOUNT_MARGIN_FREE), ", Margem necessária: ", margem);
+         return false;
+      }
+      else
+         return false;
+   }
+}
+
+//---
+long NumeroMagicoUltimaPosicao()
+{
+   HistorySelect(0, TimeCurrent());
+
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) == numero_magico && HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+         return HistoryDealGetInteger(ticket, DEAL_MAGIC);
+   }
+
+   return 0;
+}
+
+//---
+bool SemPosicao()
+{
+   int total = PositionsTotal();
+   
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+         return false;
+   }
+
+   return true;
+}
+//---
+double LucroAtual()
+{  
+   double lucro = 0;
+   
+   int total = PositionsTotal();
+   
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+         lucro += PositionGetDouble(POSITION_PROFIT);
+   }
+
+   return lucro;
+}
+//Fecha todas as posições em aberto
+void FecharPosicao()
+{
+   int total = PositionsTotal();
+   
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ResetLastError();
+
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         if(trade.PositionClose(PositionGetTicket(i)))
+         {
+            Print("Sucesso ao fechar posição no ", PositionGetString(POSITION_SYMBOL));
+
+         }
+         else
+            Print("Erro ao fechar Posição no ", PositionGetString(POSITION_SYMBOL), "  Erro: ", GetLastError());
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double NormalizePrice(double price)
+{
+   if(medida_geral == _unidade_pontos)
+   {
+      double tick_size = SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_SIZE);
+   
+   //retorna o preço em pontos
+      if(tick_size != 0)
+         return(NormalizeDouble(MathRound(price / tick_size) * tick_size, _Digits));
+   
+      return (price * _Point);
+   }
+   else
+      return price * _Point;   
+}
+
+//---Normaliza o preço
+double Arredondar(double price, string symbol = NULL, double tick = 0)
+{
+   const double _tick = tick ? tick : SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tick == 0)
+      tick = 1;
+
+   return NormalizeDouble(round(price / _tick) * _tick, _Digits);
+}
+
+//---
+double ObterStopLoss(int tipo, double preco, double l)
+{
+   const double stop_normalizado = NormalizePrice(stop);
+   double sl = -1;
+
+   //Verifica se a operação é de compra ou venda
+   if(tipo == 1)
+   {
+      sl = (stop > 0) ? preco - stop_normalizado : 0;
+      
+      //Faz o caulco para poder saber se o tamanho do stop irá ultrapassar o valor da meta diária
+      double tamanho_stop = (sl > 0)? preco - sl: 0;
+      double pontos_restantes = PontosRestantesPerda(l);
+      if(tamanho_stop!= 0 && pontos_restantes != 0)
+      {
+         if(tamanho_stop > pontos_restantes)
+            sl = (tamanho_stop > 0)? preco - NormalizePrice(pontos_restantes): 0;
+      }
+
+      //Verifica se o stop loss é inválido
+      if(sl > ticks.bid && sl != 0)
+         return -1;
+   }
+   else
+   {
+      sl = (stop > 0) ? preco + stop_normalizado : 0;
+      
+      //Faz o caulco para poder saber se o tamanho do stop irá ultrapassar o valor da meta diária
+      double tamanho_stop = (sl > 0)? sl - preco: 0;
+      double pontos_restantes = PontosRestantesPerda(l);
+      
+      if(tamanho_stop!= 0 && pontos_restantes != 0)
+      {
+         if(tamanho_stop > pontos_restantes)
+            sl = (tamanho_stop > 0)? preco + NormalizePrice(pontos_restantes): 0;
+      }
+
+      //Verifica se o stop loss é inválido
+      if(sl < ticks.ask && sl != 0)
+         return -1;
+   }
+
+   return NormalizeDouble(sl, _Digits);
+}
+//---
+double ObterTakeProft(int tipo, double preco, double l)
+{
+   const double take_normalizado = NormalizePrice(take);
+   double tp = -1;
+
+   //Verifica se a operação é de compra ou venda
+   if(tipo == 1)
+   {
+      tp = (take > 0) ? preco + take_normalizado : 0;
+      
+      //Faz o caulco para poder saber se o tamanho do take irá ultrapassar o valor da meta diária
+      double tamanho_take = (tp > 0)? tp - preco: 0;
+      double pontos_restantes = PontosRestantesGanho(l);
+      if(tamanho_take != 0 && pontos_restantes != 0)
+      {
+         if(tamanho_take > pontos_restantes)
+            tp = (tamanho_take > 0)? preco + NormalizePrice(pontos_restantes): 0;
+      }
+
+      //Verifica se o take proft é inválido
+      if(tp < ticks.bid && tp != 0)
+         return -1;
+   }
+   else
+   {
+      tp = (take > 0) ? preco - take_normalizado : 0;
+      
+      //Faz o caulco para poder saber se o tamanho do take irá ultrapassar o valor da meta diária
+      double tamanho_take = (tp > 0)? preco - tp: 0;
+      double pontos_restantes = PontosRestantesGanho(l);
+      if(tamanho_take != 0 && pontos_restantes != 0)
+      {
+         if(tamanho_take > pontos_restantes)
+            tp = (tamanho_take > 0)? preco - NormalizePrice(pontos_restantes): 0;
+      }
+
+      //Verifica se o take proft é inválido
+      if(tp > ticks.ask && tp != 0)
+         return -1;
+   }
+
+   return NormalizeDouble(tp, _Digits);
+}
+
+//---
+double CalcularLote(double l, bool calcular_martingale = true)
+{
+   const double volume_minimo = SymbolInfoDouble(_Symbols, SYMBOL_VOLUME_MIN);
+   const double volume_maximo = SymbolInfoDouble(_Symbols, SYMBOL_VOLUME_MAX);
+   
+   if(calcular_martingale)
+   {
+      //Obtem o valor do martingale
+      if(qtd_martingale > 0 && multiplicador_martingale > 0 && usar_martingale)
+         l = VolumeMartingale();
+   }      
+   
+   
+   
+   if(volume_minimo >= 1)
+   {
+      //Faz com o lote seja um múltiplo ceto
+      double resto = MathMod(l, volume_minimo);
+      l = l - resto;
+   }   
+
+   if(l >= volume_minimo && l <= volume_maximo)
+      return NormalizeDouble(l, 2);
+   else if(l < volume_minimo)
+      return NormalizeDouble(volume_minimo, 2);
+   else if(l > volume_maximo)
+      return NormalizeDouble(volume_maximo, 2);
+   else
+      return -1;
+}
+//---
+bool MargemNecessaria(ENUM_ORDER_TYPE tipo_ordem, double volume, double preco, double &margin)
+{
+
+   double margem;
+
+   
+   if(OrderCalcMargin(tipo_ordem, _Symbols, volume, preco, margem))
+   {
+      margin = 0;
+      margin = margem;
+      if(AccountInfoDouble(ACCOUNT_MARGIN_FREE) > margem)
+         return true;
+      else
+         return false;
+   }
+   else
+      return false;
+
+}
+
+//---
+double PrecoMedio()
+{
+   double lote_total = 0;
+   double preco_medio = 0;
+
+   for(int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         preco_medio += PositionGetDouble(POSITION_PRICE_OPEN) * PositionGetDouble(POSITION_VOLUME);
+         lote_total += PositionGetDouble(POSITION_VOLUME);
+      }
+   }
+   if(lote_total == 0)
+      lote_total = 1;
+
+   return Arredondar(NormalizeDouble(preco_medio / lote_total, _Digits));
+}
+
+//---
+bool CriarLinhaReferencia(string nome_objeto, double preco, uint cor_linha)
+{
+
+   double linha_objeto = ObjectGetDouble(0, nome_objeto, OBJPROP_PRICE);
+
+   //Verifica se não existe o objeto
+   if(linha_objeto == 0)
+   {
+      if(ObjectCreate(0, nome_objeto, OBJ_HLINE, 0, 0, preco))
+      {
+         ObjectSetDouble(0, nome_objeto, OBJPROP_PRICE, preco);
+         ObjectSetInteger(0, nome_objeto, OBJPROP_STYLE, STYLE_DOT);
+         ObjectSetInteger(0, nome_objeto, OBJPROP_COLOR, cor_linha);
+
+         return true;
+      }
+   }
+   else
+   {
+      //Verifica se o novo preço é diferente
+      if(linha_objeto != preco)
+         return ObjectSetDouble(0, nome_objeto, OBJPROP_PRICE, preco);
+   }
+
+   return false;
+
+}
+
+//---
+void Mostre(string texto)
+{
+   Print(texto);
+}
+
+//---
+void DeletarOrdem()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(OrderGetTicket(i)))
+      {
+         if(OrderGetInteger(ORDER_MAGIC) == numero_magico && OrderGetString(ORDER_SYMBOL) == _Symbols)
+         {
+            if(trade.OrderDelete(OrderGetTicket(i)))
+            {
+               Print("Ordem deletada com sucesso no ", OrderGetString(ORDER_SYMBOL));
+
+            }
+            else
+               Print("Erro ao deletar ordem no ", OrderGetString(ORDER_SYMBOL), "  Erro: ", GetLastError());
+         }
+      }
+   }
+}
+
+//---
+bool SemOrdem()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(OrderGetTicket(i)))
+      {
+         if(OrderGetInteger(ORDER_MAGIC) == numero_magico && OrderGetString(ORDER_SYMBOL) == _Symbols)
+            return false;
+      }
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool AjustarStopsIniciais()
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!conta_netting)
+         PositionSelectByTicket(ticket);
+      else
+         PositionSelect(_Symbols);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         double volume = PositionGetDouble(POSITION_VOLUME);
+         
+         
+         //Verifica se o volume da posição atual é igual ao volume solicitado
+         if(volume == volume_executado)
+         {
+            double open = Arredondar(PositionGetDouble(POSITION_PRICE_OPEN));
+            double sl = PositionGetDouble(POSITION_SL);
+            double tp = PositionGetDouble(POSITION_TP);
+   
+   
+            //Verifica se o preço de abertura é válido
+            if(open == 0)
+               return false;
+   
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            {
+               double novo_sl = ObterStopLoss(1, open, volume);
+               double novo_tp = ObterTakeProft(1, open, volume);
+   
+               //Verifica se o stop loss ou o take proft é diferente do configurado
+               if(novo_sl != sl || novo_tp != tp)
+               {
+                  if((ticks.bid > novo_sl && ticks.bid < novo_tp) || (ticks.bid > novo_sl && novo_tp == 0) || (novo_sl == 0 && ticks.bid < novo_tp))
+                  {
+                     if(trade.PositionModify(ticket, novo_sl, novo_tp))
+                     {
+                        Mostre("Stops inciais ajustados com sucesso na operação de compra no " + PositionGetString(POSITION_SYMBOL) + ", Abertura: " + (string)open + ", Sl: " + (string)novo_sl + ", Tp: " + (string)novo_tp);
+                        
+                        //Posiciona a saída parcial automatica
+                        AdicionarSaidaParcialAutomatica(1, open, volume, tp);
+                        
+                        //Posiciona as saída parciais fixas
+                        AdicionarSaidaParcial(1, open, 0, 0, volume);
+                        
+                        return true;
+                     }
+                     else
+                     {
+                        Mostre("Erro ao ajustar os stops inicias da posição de compra no " + PositionGetString(POSITION_SYMBOL) + ", Abertura: " + (string)open + "Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)novo_tp + " Erro: " + (string)GetLastError());
+                        return false;
+                     }
+                  }
+               }
+               else
+               {
+                  //Posiciona a saída parcial
+                  AdicionarSaidaParcialAutomatica(1, open, volume, tp);
+                  
+                  //Posiciona as saída parciais fixas
+                  AdicionarSaidaParcial(1, open, 0, 0, volume);
+                  
+                  return true;
+               }   
+            }
+            else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+            {
+               double novo_sl = ObterStopLoss(-1, open, volume);
+               double novo_tp = ObterTakeProft(-1, open, volume);
+   
+               //Verifica se o stop loss ou o take proft é diferente do configurado
+               if(novo_sl != sl || novo_tp != tp)
+               {
+   
+                  if((ticks.ask < novo_sl && ticks.ask > novo_tp) || (ticks.ask < novo_sl && novo_tp == 0) || (novo_sl == 0 && ticks.ask > novo_tp))
+                  {
+                     if(trade.PositionModify(ticket, novo_sl, novo_tp))
+                     {
+                        Mostre("Stops inciais ajustados com sucesso na operação de venda no " + PositionGetString(POSITION_SYMBOL) + ", Abertura: " + (string)open + ", Sl: " + (string)novo_sl + ", Tp: " + (string)novo_tp);
+                        
+                        //Posiciona a saída parcial
+                        AdicionarSaidaParcialAutomatica(-1, open, volume, tp);
+                        
+                        //Posiciona as saída parciais fixas
+                        AdicionarSaidaParcial(-1, open, 0, 0, volume);
+                        
+                        return true;
+                     }
+                     else
+                     {
+                        Mostre("Erro ao ajustar os stops inicias da posição de venda no " + PositionGetString(POSITION_SYMBOL) + ", Abertura: " + (string)open + "Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)novo_tp + " Erro: " + (string)GetLastError());
+                        return false;
+                     }
+                  }
+               }
+               else
+               {
+                  //Posiciona a saída parcial
+                  AdicionarSaidaParcialAutomatica(-1, open, volume, tp);   
+                  
+                  //Posiciona as saída parciais fixas
+                  AdicionarSaidaParcial(-1, open, 0, 0, volume);
+                  
+                  return true;
+               }   
+            }
+         }   
+      }
+   }
+   return false;
+}
+
+//---
+bool HorarioNegociacao()
+{
+   if(!usar_horario_negociacao)
+      return true;
+   if(horaAtual.hour >= horaInicio.hour && horaAtual.hour <= horaTermino.hour)
+   {
+      if(horaAtual.hour == horaInicio.hour)
+      {
+         //Verifica quando a hora do inicio e término são iguais
+         if(horaAtual.hour == horaTermino.hour)
+         {
+            if(horaAtual.min >= horaInicio.min && horaAtual.min < horaTermino.min)
+               return true;
+            else
+               return false;
+         }
+         if(horaAtual.min >= horaInicio.min)
+            return true;
+         else
+            return false;
+      }
+      if(horaAtual.hour == horaTermino.hour)
+      {
+         if(horaAtual.min < horaTermino.min)
+            return true;
+         else
+            return false;
+      }
+      return true;
+   }
+   return false;
+}
+
+//Verifica se o lucro ou perda do dia foi atingido
+bool MetaAtingida()
+{
+   if(meta_atingida)
+      return true;
+   else
+   {
+      double lucro = LucroDia();
+      
+      const double perda = (perda_diaria > 0)? perda_diaria * -1: perda_diaria;
+      
+      if(lucro <= perda && perda != 0)
+      {
+         meta_atingida = true;
+         return true;
+      }
+      else if(lucro >= ganho_diaria && ganho_diaria != 0)
+      {
+         meta_atingida = true;
+         return true;
+      }
+      else
+         return false;   
+   }   
+}
+//---
+void VerificarMetaDiaria()
+{
+   double lucro = LucroDia() + LucroAtual();
+   
+   const double perda = (perda_diaria > 0)? perda_diaria * -1: perda_diaria;
+   
+   if((lucro >= ganho_diaria && ganho_diaria != 0) || (meta_atingida))
+   {
+      if(!meta_atingida)
+         Print("Fechando posição... Meta diária de ganho atingida! Lucro: $", lucro, ", Parâmetro informado: $", ganho_diaria);
+         
+      meta_atingida = true;
+      
+      //Verifica se irá fechar a posição após atingir a meta diária de ganho
+      if(fechar_op_meta_ganho)
+      {
+         Print("Fechando posição... Meta diária de ganho atingida! Lucro: $", lucro, ", Parâmetro informado: $", ganho_diaria);
+         FecharPosicao();
+      }
+      
+   }
+   
+   if((lucro <= perda && perda != 0) || (meta_atingida))
+   {
+      if(!meta_atingida)
+         Print("Fechando posição... Meta diária de perda atingida! Lucro: $", lucro, ", Parâmetro informado: $", perda);
+         
+      meta_atingida = true;
+      
+      //Verifica se irá fechar a posição após atingir a meta diária de perda
+      if(fechar_op_meta_perda)
+      {
+         Print("Fechando posição... Meta diária de perda atingida! Lucro: $", lucro, ", Parâmetro informado: $", perda);
+         FecharPosicao();
+      }
+      
+   }
+   
+   
+   
+}
+//---
+void CriarPainel()
+{
+   int largura_painel = 340;
+   int x_distance = 10;
+   uint cor_fundo_painel = C'31, 28, 24';
+   string fonte = "Arial";
+   int distancia_entre_linhas = 30;
+   uint cor_borda = clrDodgerBlue;
+   uint cor_fonte = clrWhite;
+   string nome_configuracao = nome_config;
+   int incremento = 20;
+
+   int tamanho_caraceters_setup = StringLen(nome_config);
+   if(tamanho_caraceters_setup > 33)
+      nome_configuracao = StringSubstr(nome_configuracao, 0, 33) + "...";
+   else if(nome_configuracao == "")
+      nome_configuracao = " ";
+
+   Painel painel;
+
+   string name = "^background";
+   painel.RetangleLabel(name, largura_painel, altura_painel, cor_fundo_painel, cor_borda, altura_painel, x_distance);
+
+
+   string header = "^cabecalho";
+   painel.RetangleLabel(header, largura_painel, 20, cor_borda, cor_borda, altura_painel, x_distance);
+
+
+   string minimizar = "^minimizar";
+   painel.Botao(minimizar, 20, 20, cor_borda, cor_fonte, largura_painel - 50, altura_painel, "▬", fonte, 10);
+
+   string fechar = "^fechar";
+   painel.Botao(fechar, 20, 20, cor_borda, cor_fonte, largura_painel - 20, altura_painel, "×", fonte, 15);
+
+   string setup_cabecalho = "^setup";
+   painel.Text(setup_cabecalho, cor_fonte, x_distance + 5, altura_painel - 7, nome_configuracao, fonte, 8);
+   
+   painel.Text("^Server_time", clrDodgerBlue, x_distance + 10, altura_painel - distancia_entre_linhas, "Server time", "Bahnschrift SemiBold", 8);
+   painel.Text("^Label_candle", clrDodgerBlue, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "Prox Candle", "Bahnschrift SemiBold", 8);
+   distancia_entre_linhas += incremento;
+   
+   
+   painel.Text("^time", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, (string)TimeToString(TimeCurrent(), TIME_MINUTES | TIME_SECONDS), fonte, 8);
+   painel.Text("^time_restante", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, (string)TimeToString(TimeCurrent(), TIME_MINUTES | TIME_SECONDS), fonte, 8);
+   distancia_entre_linhas += incremento  - 5;
+   
+   string setup_cabecalho2 = "^texte";
+   painel.Text("^ativo", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, _Symbols, fonte, 13);
+   painel.Text("^acertos_entradas", cor_fonte, x_distance + 150, altura_painel - distancia_entre_linhas - 5, "Acertos", fonte, 8);
+   painel.Text("^lucro", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "Lucro", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^dia", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Dia", fonte, 10);
+   painel.Text("^acertos_dia", cor_fonte, x_distance + 150, altura_painel - distancia_entre_linhas - 5, "0/0", fonte, 8);
+   painel.Text("^lucro_dia", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "00.00", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^semana", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Semana", fonte, 10);
+   painel.Text("^acertos_semana", cor_fonte, x_distance + 150, altura_painel - distancia_entre_linhas - 5, "0/0", fonte, 8);
+   painel.Text("^lucro_semana", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "00.00", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^mes", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Mês", fonte, 10);
+   painel.Text("^acertos_mes", cor_fonte, x_distance + 150, altura_painel - distancia_entre_linhas - 5, "0/0", fonte, 8);
+   painel.Text("^lucro_mes", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "00.00", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^total", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Total", fonte, 10);
+   painel.Text("^acertos_total", cor_fonte, x_distance + 150, altura_painel - distancia_entre_linhas - 5, "0/0", fonte, 8);
+   painel.Text("^lucro_total", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "00.00", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^lucro_atual_label", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Lucro Atual", fonte, 10);
+   painel.Text("^lucro_atual", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "00.00", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^posicao", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Sem Posição", fonte, 10);
+   painel.Botao("^zerar", 80, 20, clrRed, cor_fonte, x_distance + 230, altura_painel - distancia_entre_linhas, "Zerar", fonte, 10);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^volume", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Volume", fonte, 8);
+   painel.Text("^volume_posicao", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, "00.00", fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^numero_magico", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Número Mágico", fonte, 10);
+   painel.Text("^numero_magico_posicao", cor_fonte, x_distance + 250, altura_painel - distancia_entre_linhas - 5, IntegerToString(numero_magico), fonte, 8);
+   distancia_entre_linhas += incremento;
+
+   painel.Text("^horario", cor_fonte, x_distance + 10, altura_painel - distancia_entre_linhas, "Dentro do Horário de Negociação", fonte, 10);
+   distancia_entre_linhas += incremento;
+   ChartRedraw();
+}
+//---
+//---
+void DeletarPainel()
+{
+   const string objetos[] = {"^zerar","^volume_posicao","^volume","^total","^setup","^semana","^posicao","^numero_magico_posicao","^numero_magico","^minimizar","^mes","^lucro_total","^lucro_semana","^lucro_mes","^lucro_dia","^lucro_atual_label","^lucro_atual","^lucro","^horario","^fechar","^dia","^cabecalho","^background","^ativo","^acertos_total","^acertos_semana","^acertos_mes","^acertos_entradas","^acertos_dia", "^time", "^time_restante", "^Server_time", "^Label_candle"};
+   
+   const int array_size = ArraySize(objetos);
+
+   for(int i = 0; i < array_size; i++)
+   {
+      ObjectDelete(0, objetos[i]);
+   }
+}
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id, const long& lparam, const double& dparam, const string& sparam)
+{
+//Verifica em qual objeto foi realizado o click do mouse
+   if(id == CHARTEVENT_OBJECT_CLICK)
+   {
+      string minimizar = "^minimizar";
+      string zerar = "^zerar";
+      string fechar = "^fechar";
+
+      //Verifica se o clique foi no botão de minimizar
+      if(sparam == minimizar)
+      {
+
+         if(ObjectSetInteger(0, minimizar, OBJPROP_STATE, false))
+         {
+            if(altura_painel == height_painel)
+            {
+               altura_painel = 20;
+               ReajustarAlturaPainel(altura_painel);
+            }
+            else
+            {
+               altura_painel = height_painel;
+               ReajustarAlturaPainel(altura_painel);
+            }
+         }
+
+      }//Verifica se o clique foi no botão de zerar
+      else if(sparam == zerar)
+      {
+         if(ObjectSetInteger(0, zerar, OBJPROP_STATE, false))
+         {
+            if(!SemPosicao())
+            {
+               Print("Fechando Posição pelo botão de Zerar");
+               FecharPosicao();
+            }
+         }
+      }
+      else if(sparam == fechar)
+      {
+         if(ObjectSetInteger(0, fechar, OBJPROP_STATE, false))
+         {
+            DeletarPainel();
+         }
+      }
+   }
+
+   ChartRedraw();
+}
+//---
+void ReajustarAlturaPainel(int y_distance)
+{
+   const int totalLast = 0;
+
+   int total = ObjectsTotal(0);
+
+   for(int i = total - 1; i >= 0; i--)
+   {
+      if(StringFind(ObjectName(0, i), "^") >= 0)
+      {
+         long y_distance_objeto = ObjectGetInteger(0, ObjectName(0, i), OBJPROP_YDISTANCE);
+
+         if(y_distance == height_painel)
+         {
+            long resto = 20 - y_distance_objeto;
+
+            ObjectSetInteger(0, ObjectName(0, i), OBJPROP_YDISTANCE, y_distance - resto);
+         }
+         else
+         {
+            long resto = height_painel - y_distance_objeto;
+            if(y_distance != y_distance_objeto)
+               ObjectSetInteger(0, ObjectName(0, i), OBJPROP_YDISTANCE, y_distance - resto);
+            else
+               ObjectSetInteger(0, ObjectName(0, i), OBJPROP_YDISTANCE, y_distance);
+         }
+      }
+   }
+}
+//---
+class Painel
+{
+public:
+   Painel();
+   bool              RetangleLabel(string name, int x_size, int y_size, uint cor, uint cor_bordas, int y_distance = 0, int x_distance = 0);
+   bool              Text(string name, uint cor, int x_distance, int y_distance, string text, string fonte, int font_size);
+   bool              Botao(string name, int x_size, int y_size, uint cor_fundo, uint cor_fonte, int x_distance, int y_distance, string texto, string fonte, int font_size);
+};
+//+------------------------------------------------------------------+
+//|      CONTRUTOR                                                   |
+//+------------------------------------------------------------------+
+Painel::Painel()
+{
+
+}
+//---
+bool Painel::RetangleLabel(string name, int x_size, int y_size, uint cor, uint cor_bordas, int y_distance = 0, int x_distance = 0)
+{
+   if(ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0))
+   {
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, cor);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y_distance);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, x_size);
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, y_size);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, NULL);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, cor_bordas);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, cor_bordas);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 3);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+
+      return true;
+   }
+   else
+      return false;
+}
+//---
+bool Painel::Text(string name, uint cor, int x_distance, int y_distance, string text, string fonte, int font_size)
+{
+   if(ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0))
+   {
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y_distance);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x_distance);
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(0, name, OBJPROP_ALIGN, ALIGN_CENTER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, font_size);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, cor);
+
+      return true;
+   }
+   else
+      return false;
+}
+//---
+bool Painel::Botao(string name, int x_size, int y_size, uint cor_fundo, uint cor_fonte, int x_distance, int y_distance, string texto, string fonte, int font_size)
+{
+   if(ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0))
+   {
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, cor_fundo);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y_distance);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x_distance);
+      ObjectSetString(0, name, OBJPROP_TEXT, texto);
+      ObjectSetInteger(0, name, OBJPROP_ALIGN, ALIGN_CENTER);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, font_size);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, x_size);
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, y_size);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, NULL);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, cor_fundo);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, cor_fonte);
+
+      return true;
+   }
+   else
+      return false;
+}
+//---
+void ResultadoMes(DadosOperacao &operacao)
+{
+   operacao.operacao_atual = "";
+   operacao.profit_total = 0;
+   operacao.total_acertos = 0;
+   operacao.total_operacao = 0;
+   operacao.volume_total = 0;
+
+   //HistorySelect(0, TimeCurrent());
+   long ids[];
+   if(DadosPosicao(StringToTime(comeco_mes), ids))
+   {
+      int array_size = ArraySize(ids);
+
+      for(int k = 0; k < array_size; k++)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+            operacao.total_operacao = array_size;
+
+            double lucro = 0;
+
+            for(int i = 0; i < HistoryDealsTotal(); i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+               {
+                  long deal_type = HistoryDealGetInteger(ticket, DEAL_TYPE);
+                  long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+                  double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  lucro += profit;
+                  operacao.profit_total += profit;
+
+
+                  if(entry == DEAL_ENTRY_IN)
+                     operacao.volume_total += volume;
+               }
+            }
+            if(lucro > 0)
+               operacao.total_acertos++;
+         }
+      }
+   }
+
+
+}
+//---
+void ResultadoSemana(DadosOperacao &operacao)
+{
+   operacao.operacao_atual = "";
+   operacao.profit_total = 0;
+   operacao.total_acertos = 0;
+   operacao.total_operacao = 0;
+   operacao.volume_total = 0;
+
+   //HistorySelect(0, TimeCurrent());
+   long ids[];
+   if(DadosPosicao(StringToTime(comeco_semana), ids))
+   {
+      int array_size = ArraySize(ids);
+
+      for(int k = 0; k < array_size; k++)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+            operacao.total_operacao = array_size;
+
+            double lucro = 0;
+
+            for(int i = 0; i < HistoryDealsTotal(); i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+               {
+                  long deal_type = HistoryDealGetInteger(ticket, DEAL_TYPE);
+                  long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+                  double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  lucro += profit;
+                  operacao.profit_total += profit;
+
+
+                  if(entry == DEAL_ENTRY_IN)
+                     operacao.volume_total += volume;
+               }
+            }
+            if(lucro > 0)
+               operacao.total_acertos++;
+         }
+      }
+   }
+}
+//---
+void ResultadoDia(DadosOperacao &operacao)
+{
+   operacao.operacao_atual = "";
+   operacao.profit_total = 0;
+   operacao.total_acertos = 0;
+   operacao.total_operacao = 0;
+   operacao.volume_total = 0;
+
+   //HistorySelect(0, TimeCurrent());
+   long ids[];
+   if(DadosPosicao(StringToTime(comeco), ids))
+   {
+      int array_size = ArraySize(ids);
+
+      for(int k = 0; k < array_size; k++)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+            operacao.total_operacao = array_size;
+
+            double lucro = 0;
+
+            for(int i = 0; i < HistoryDealsTotal(); i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+               {
+                  long deal_type = HistoryDealGetInteger(ticket, DEAL_TYPE);
+                  long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+                  double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  lucro += profit;
+                  operacao.profit_total += profit;
+
+
+                  if(entry == DEAL_ENTRY_IN)
+                     operacao.volume_total += volume;
+               }
+            }
+            if(lucro > 0)
+               operacao.total_acertos++;
+         }
+      }
+   }
+}
+//---
+void ResultadoTotal(DadosOperacao &operacao)
+{
+   operacao.operacao_atual = "";
+   operacao.profit_total = 0;
+   operacao.total_acertos = 0;
+   operacao.total_operacao = 0;
+   operacao.volume_total = 0;
+
+   //HistorySelect(0, TimeCurrent());
+   long ids[];
+   if(DadosPosicao(0, ids))
+   {
+      int array_size = ArraySize(ids);
+
+      for(int k = 0; k < array_size; k++)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+            operacao.total_operacao = array_size;
+
+            double lucro = 0;
+
+            for(int i = 0; i < HistoryDealsTotal(); i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+               {
+                  long deal_type = HistoryDealGetInteger(ticket, DEAL_TYPE);
+                  long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+                  double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  lucro += profit;
+                  operacao.profit_total += profit;
+
+
+                  if(entry == DEAL_ENTRY_IN)
+                     operacao.volume_total += volume;
+               }
+            }
+            if(lucro > 0)
+               operacao.total_acertos++;
+         }
+      }
+   }
+}
+
+//---
+void ResultadoAtual(DadosOperacao &operacao)
+{
+   operacao.operacao_atual = "Sem Posição";
+   operacao.profit_total = 0;
+   operacao.total_acertos = 0;
+   operacao.total_operacao = 0;
+   operacao.volume_total = 0;
+
+   double preco_medio_compra = 0;
+   double preco_medio_venda = 0;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         long deal_type = PositionGetInteger(POSITION_TYPE);
+         double volume = PositionGetDouble(POSITION_VOLUME);
+         double profit = PositionGetDouble(POSITION_PROFIT);
+
+         operacao.volume_total += volume;
+         operacao.profit_total += profit;
+
+         if(deal_type == POSITION_TYPE_BUY)
+         {
+            operacao.operacao_atual = "Comprado";
+         }
+         else if(deal_type == POSITION_TYPE_SELL)
+         {
+            operacao.operacao_atual = "Vendido";
+         }
+
+         operacao.total_operacao++;
+         operacao.total_acertos = 0;
+
+      }
+   }
+
+
+
+}
+//---
+void AtualizarPainel()
+{
+   //Hisotórico das posições
+   DadosOperacao dados_mes;
+   DadosOperacao dados_semana;
+   DadosOperacao dados_dia;
+   DadosOperacao dados_total;
+   DadosOperacao dados_operacao;
+
+   ResultadoDia(dados_dia);
+   ResultadoSemana(dados_semana);
+   ResultadoMes(dados_mes);
+   ResultadoTotal(dados_total);
+   ResultadoAtual(dados_operacao);
+
+   
+   ObjectSetString(0, "^time", OBJPROP_TEXT, TimeToString(TimeCurrent(), TIME_MINUTES | TIME_SECONDS));
+   ObjectSetString(0, "^time_restante", OBJPROP_TEXT, TempoRestanteCandle(iTime(_Symbols, _Period, 0)));
+   
+
+   //Verifica se o ganho do dia é maior que zero
+   if(dados_dia.profit_total >= 0)
+   {
+      ObjectSetInteger(0, "^lucro_dia", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetString(0, "^lucro_dia", OBJPROP_TEXT, DoubleToString(dados_dia.profit_total, 2));
+      ObjectSetString(0, "^acertos_dia", OBJPROP_TEXT, (string)(int)(dados_dia.total_acertos) + "/" + (string)(int)(dados_dia.total_operacao));
+   }
+   else
+   {
+      ObjectSetInteger(0, "^lucro_dia", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^lucro_dia", OBJPROP_TEXT, DoubleToString(dados_dia.profit_total, 2));
+      ObjectSetString(0, "^acertos_dia", OBJPROP_TEXT, (string)(int)(dados_dia.total_acertos) + "/" + (string)(int)(dados_dia.total_operacao));
+   }
+
+
+   //Verifica se o ganho da semana é maior que zero
+   if(dados_semana.profit_total >= 0)
+   {
+      ObjectSetInteger(0, "^lucro_semana", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetString(0, "^lucro_semana", OBJPROP_TEXT, DoubleToString(dados_semana.profit_total, 2));
+      ObjectSetString(0, "^acertos_semana", OBJPROP_TEXT, (string)(int)(dados_semana.total_acertos) + "/" + (string)(int)(dados_semana.total_operacao));
+   }
+   else
+   {
+      ObjectSetInteger(0, "^lucro_semana", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^lucro_semana", OBJPROP_TEXT, DoubleToString(dados_semana.profit_total, 2));
+      ObjectSetString(0, "^acertos_semana", OBJPROP_TEXT, (string)(int)(dados_semana.total_acertos) + "/" + (string)(int)(dados_semana.total_operacao));
+   }
+
+   //Verifica se o ganho do mês é maior que zero
+   if(dados_mes.profit_total >= 0)
+   {
+      ObjectSetInteger(0, "^lucro_mes", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetString(0, "^lucro_mes", OBJPROP_TEXT, DoubleToString(dados_mes.profit_total, 2));
+      ObjectSetString(0, "^acertos_mes", OBJPROP_TEXT, (string)(int)(dados_mes.total_acertos) + "/" + (string)(int)(dados_mes.total_operacao));
+   }
+   else
+   {
+      ObjectSetInteger(0, "^lucro_mes", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^lucro_mes", OBJPROP_TEXT, DoubleToString(dados_mes.profit_total, 2));
+      ObjectSetString(0, "^acertos_mes", OBJPROP_TEXT, (string)(int)(dados_mes.total_acertos) + "/" + (string)(int)(dados_mes.total_operacao));
+   }
+
+   //Verifica se o ganho total é maior que zero
+   if(dados_total.profit_total >= 0)
+   {
+      ObjectSetInteger(0, "^lucro_total", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetString(0, "^lucro_total", OBJPROP_TEXT, DoubleToString(dados_total.profit_total, 2));
+      ObjectSetString(0, "^acertos_total", OBJPROP_TEXT, (string)(int)(dados_total.total_acertos) + "/" + (string)(int)(dados_total.total_operacao));
+   }
+   else
+   {
+      ObjectSetInteger(0, "^lucro_total", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^lucro_total", OBJPROP_TEXT, DoubleToString(dados_total.profit_total, 2));
+      ObjectSetString(0, "^acertos_total", OBJPROP_TEXT, (string)(int)(dados_total.total_acertos) + "/" + (string)(int)(dados_total.total_operacao));
+   }
+
+//Verifica se o ganho atual é maior que zero
+
+   if(dados_operacao.profit_total >= 0)
+   {
+      ObjectSetInteger(0, "^lucro_atual", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetString(0, "^lucro_atual", OBJPROP_TEXT, DoubleToString(dados_operacao.profit_total, 2));
+   }
+   else
+   {
+      ObjectSetInteger(0, "^lucro_atual", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^lucro_atual", OBJPROP_TEXT, DoubleToString(dados_operacao.profit_total, 2));
+   }
+
+//Atualiza o volume da posição
+   ObjectSetString(0, "^volume_posicao", OBJPROP_TEXT, DoubleToString(dados_operacao.volume_total, 2));
+
+//Verifica se está comprado ou vendido
+   if(dados_operacao.operacao_atual == "Comprado")
+   {
+      ObjectSetInteger(0, "^posicao", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetString(0, "^posicao", OBJPROP_TEXT, dados_operacao.operacao_atual);
+   }
+   else if(dados_operacao.operacao_atual == "Vendido")
+   {
+      ObjectSetInteger(0, "^posicao", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^posicao", OBJPROP_TEXT, dados_operacao.operacao_atual);
+   }
+   else
+   {
+      ObjectSetInteger(0, "^posicao", OBJPROP_COLOR, clrWhite);
+      ObjectSetString(0, "^posicao", OBJPROP_TEXT, dados_operacao.operacao_atual);
+   }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+   {
+      ObjectSetInteger(0, "^horario", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^horario", OBJPROP_TEXT, "Algotrading Desativado");
+
+      //Referência de cores usando o painel
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_COLOR, clrCoral);
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BORDER_COLOR, clrCoral);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BORDER_COLOR, clrCoral);
+      ObjectSetInteger(0, "^background", OBJPROP_COLOR, clrCoral);
+   }
+   else if(MetaAtingida())
+   {
+      if(LucroDia() > 0)
+      {
+         ObjectSetInteger(0, "^horario", OBJPROP_COLOR, clrGreen);
+         ObjectSetString(0, "^horario", OBJPROP_TEXT, "Meta Diária Atingida");
+
+         //Referência de cores usando o painel
+         ObjectSetInteger(0, "^cabecalho", OBJPROP_COLOR, clrGreen);
+         ObjectSetInteger(0, "^cabecalho", OBJPROP_BGCOLOR, clrGreen);
+         ObjectSetInteger(0, "^fechar", OBJPROP_BGCOLOR, clrGreen);
+         ObjectSetInteger(0, "^minimizar", OBJPROP_BGCOLOR, clrGreen);
+         ObjectSetInteger(0, "^minimizar", OBJPROP_BORDER_COLOR, clrGreen);
+         ObjectSetInteger(0, "^fechar", OBJPROP_BORDER_COLOR, clrGreen);
+         ObjectSetInteger(0, "^background", OBJPROP_COLOR, clrGreen);
+      }
+      else
+      {
+         ObjectSetInteger(0, "^horario", OBJPROP_COLOR, clrCoral);
+         ObjectSetString(0, "^horario", OBJPROP_TEXT, "Meta Diária Atingida");
+
+         //Referência de cores usando o painel
+         ObjectSetInteger(0, "^cabecalho", OBJPROP_COLOR, clrCoral);
+         ObjectSetInteger(0, "^cabecalho", OBJPROP_BGCOLOR, clrCoral);
+         ObjectSetInteger(0, "^fechar", OBJPROP_BGCOLOR, clrCoral);
+         ObjectSetInteger(0, "^minimizar", OBJPROP_BGCOLOR, clrCoral);
+         ObjectSetInteger(0, "^minimizar", OBJPROP_BORDER_COLOR, clrCoral);
+         ObjectSetInteger(0, "^fechar", OBJPROP_BORDER_COLOR, clrCoral);
+         ObjectSetInteger(0, "^background", OBJPROP_COLOR, clrCoral);
+      }
+   }
+   else if(!OperarDia())
+   {
+      ObjectSetInteger(0, "^horario", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^horario", OBJPROP_TEXT, "Não Negociar Hoje");
+      //Referência de cores usando o painel
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_COLOR, clrCoral);
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BORDER_COLOR, clrCoral);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BORDER_COLOR, clrCoral);
+      ObjectSetInteger(0, "^background", OBJPROP_COLOR, clrCoral);
+   }
+   else if(!HorarioNegociacao())
+   {
+      ObjectSetInteger(0, "^horario", OBJPROP_COLOR, clrCoral);
+      ObjectSetString(0, "^horario", OBJPROP_TEXT, "Fora do Horário de Negociação");
+
+      //Referência de cores usando o painel
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_COLOR, clrCoral);
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BGCOLOR, clrCoral);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BORDER_COLOR, clrCoral);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BORDER_COLOR, clrCoral);
+      ObjectSetInteger(0, "^background", OBJPROP_COLOR, clrCoral);
+   }
+   else
+   {
+      ObjectSetInteger(0, "^horario", OBJPROP_COLOR, clrWhite);
+      ObjectSetString(0, "^horario", OBJPROP_TEXT, "Dentro do Horário de Negociação");
+
+      //Referência de cores usando o painel
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_COLOR, clrDodgerBlue);
+      ObjectSetInteger(0, "^cabecalho", OBJPROP_BGCOLOR, clrDodgerBlue);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BGCOLOR, clrDodgerBlue);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BGCOLOR, clrDodgerBlue);
+      ObjectSetInteger(0, "^minimizar", OBJPROP_BORDER_COLOR, clrDodgerBlue);
+      ObjectSetInteger(0, "^fechar", OBJPROP_BORDER_COLOR, clrDodgerBlue);
+      ObjectSetInteger(0, "^background", OBJPROP_COLOR, clrDodgerBlue);
+   }
+   ChartRedraw();
+}
+//---
+bool DadosPosicao(datetime data, long &resultado_id[])
+{
+   double lucro = 0;
+   int index = 1;
+
+   ArrayFree(resultado_id);
+
+   HistorySelect(data, TimeCurrent());
+
+   for(int i = 0; i <= HistoryDealsTotal() - 1; i++)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) == numero_magico && HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+      {
+         long id = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+         int array_size = ArraySize(resultado_id);
+         double price = HistoryDealGetDouble(ticket, DEAL_PRICE);
+
+         if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+         {
+            if(!NumerosRepetidosVetor(resultado_id, id, array_size))
+            {
+               ArrayResize(resultado_id, index);
+               resultado_id[index - 1] = id;
+               index++;
+            }
+         }
+      }
+   }
+
+   int array_size = ArraySize(resultado_id);
+
+   if(array_size > 0)
+      return true;
+   else
+      return false;
+}
+//---
+bool NumerosRepetidosVetor(long &vetorN[], long comparacao, int tamanho)
+{
+   for(int i = 0; i < tamanho; i++)
+   {
+      if(vetorN[i] == comparacao)
+         return true;
+   }
+
+   return false;
+}
+
+//---
+double LucroDia()
+{
+   double lucro = 0;
+   
+   //HistorySelect(0, TimeCurrent());
+   long ids[];
+   if(DadosPosicao(StringToTime(comeco), ids))
+   {
+      int array_size = ArraySize(ids);
+
+      for(int k = 0; k < array_size; k++)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+
+            for(int i = 0; i < HistoryDealsTotal(); i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+               {
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  lucro += profit;
+               }
+            }
+         }
+      }
+   }
+   
+   return lucro;
+}
+bool OperacaoRealizadaDia()
+{
+   double lucro = 0;
+   
+   //HistorySelect(0, TimeCurrent());
+   long ids[];
+   if(DadosPosicao(iTime(_Symbol, PERIOD_D1, 0), ids))
+   {
+      int array_size = ArraySize(ids);
+
+      if(array_size > 0)
+         return true;
+      else
+         return false;   
+   }
+   
+   
+   return false;
+   
+}
+
+//---
+int TipoPosicao()
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            return 1;
+         else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+            return -1;
+      }
+   }
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double VolumeMartingale()
+{
+   string dados;
+   string ultimo_position_id;
+   const double lote_padrao = lote;
+   double volume_martingale = lote_padrao;
+   int qtd_martingale_realizado = 0;
+
+   //Obtem o histórico das operações até o a data atual
+   HistorySelect(0, TimeCurrent());
+
+
+   
+   long ids[];
+   if(DadosPosicao(data_inicio_martingale, ids))
+   {
+      int array_size = ArraySize(ids);
+      
+      for(int k = array_size - 1; k >= 0; k--)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+            double lucro = 0;
+            double volume_operacao = 0;
+            
+            int total = HistoryDealsTotal();
+            for(int i = 0; i < total; i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbol)
+               {
+                  long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+                  double volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  lucro += profit;         
+                  
+                  if(entry == DEAL_ENTRY_IN)
+                     volume_operacao = volume;
+               }
+            }
+            
+            if(lucro > 0)
+               return NormalizeDouble(volume_martingale, 2);
+            
+            if(qtd_martingale_realizado < qtd_martingale)
+            {
+               volume_martingale *= multiplicador_martingale;
+               volume_martingale = NormalizeDouble(volume_martingale, 2);
+               qtd_martingale_realizado++;
+            }
+            else
+            {
+               qtd_martingale_realizado = 0;
+               volume_martingale = lote_padrao;   
+            }   
+               
+         }
+      }
+   }
+
+
+   return NormalizeDouble(volume_martingale, 2);
+}
+//---
+//---
+int Envelope()
+{
+   if(usar_envelope)
+   {
+      double buffer_red[], buffer_blue[];
+
+      ArraySetAsSeries(buffer_red, true);
+      ArraySetAsSeries(buffer_blue, true);
+
+      CopyBuffer(handle_envelope, 1, 0, 4, buffer_red);
+      CopyBuffer(handle_envelope, 0, 0, 4, buffer_blue);
+
+      bool compra = false;
+      bool venda = false;
+      
+      
+      if(indicador_envelope == _indicador_sinal)
+      {
+         if(estrategia_envelope == _fora_dentro)
+         {
+            venda = (rates[2].close > buffer_blue[2] && rates[1].close < buffer_blue[1]);
+            compra = (rates[2].close < buffer_red[2] && rates[1].close > buffer_red[1]);
+         }
+         else if(estrategia_envelope == _dentro_fora)
+         {
+            compra = (rates[2].close < buffer_blue[2] && rates[1].close > buffer_blue[1]);
+            venda = (rates[2].close > buffer_red[2] && rates[1].close < buffer_red[1]);
+         }
+         
+         else if(estrategia_envelope == _fora_dentro_romp)
+         {
+                       
+            int max = iHighest(_Symbols, PERIOD_CURRENT, MODE_HIGH, npe, 1);
+            int min = iLowest(_Symbols, PERIOD_CURRENT, MODE_LOW, npe, 1);
+            
+            if(rates[(rf+1)].close > buffer_blue[(rf+1)] && rates[rf+0].close > rates[max].high && rates[3].high > rates[2].high)
+            {compra = true;}
+            
+            else if(rates[(rf+1)].close < buffer_red[(rf+1)] && rates[rf+0].close < rates[min].low && rates[3].low < rates[2].low)
+            {venda = true;}
+            
+         }
+         
+         else
+         {
+            venda = (rates[0].close < buffer_red[1]);
+            compra = (rates[0].close > buffer_blue[1]);
+         }
+      }
+      else
+      {
+         compra = (rates[0].close > buffer_blue[1]);
+         venda = (rates[0].close < buffer_red[1]);
+      }   
+
+      if(!envelope_invertido)
+      {
+         if(compra)
+         {
+            return 1;
+         }
+         else if(venda)
+         {
+            return -1;
+         }
+         else
+            return 0;
+      }
+      else
+      {
+         if(compra)
+         {
+            return -1;
+         }
+         else if(venda)
+         {
+            return 1;
+         }
+         else
+            return 0;
+      }
+   }
+   else
+      return 0;
+}
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int Bands()
+{
+   if(usar_bands)
+   {
+      double buffer_upper[], buffer_lower[], buffer_midle[];
+
+      ArraySetAsSeries(buffer_lower, true);
+      ArraySetAsSeries(buffer_upper, true);
+      ArraySetAsSeries(buffer_midle, true);
+
+      CopyBuffer(handle_bands, 1, 0, 4, buffer_upper);
+      CopyBuffer(handle_bands, 2, 0, 4, buffer_lower);
+      CopyBuffer(handle_bands, 3, 0, 4, buffer_midle);
+
+      bool compra = false;
+      bool venda = false;
+      
+      if(indicador_bands == _indicador_sinal)
+      {
+         if(estrategia_bands == _dentro_fora)
+         {
+            compra = (rates[(rf+1)].close < buffer_upper[(rf+1)] && rates[rf].close > buffer_upper[rf]);
+            venda = (rates[(rf+1)].close > buffer_lower[(rf+1)] && rates[rf].close < buffer_lower[rf]);
+         }
+         else if(estrategia_bands == _fora_dentro)
+         {
+            venda = (rates[(rf+1)].close > buffer_upper[(rf+1)] && rates[rf].close < buffer_upper[rf]);
+            compra = (rates[(rf+1)].close < buffer_lower[(rf+1)] && rates[rf].close > buffer_lower[rf]);
+         }
+         
+         else if(estrategia_bands == _fora_dentro_romp)
+         {
+                       
+            int max = iHighest(_Symbols, PERIOD_CURRENT, MODE_HIGH, npb, 1);
+            int min = iLowest(_Symbols, PERIOD_CURRENT, MODE_LOW, npb, 1);
+            
+            if(rates[(rf+1)].close > buffer_upper[(rf+1)] && rates[rf].close > rates[max].high && rates[1].high < rates[2].high)
+            {compra = true;}
+            else if(rates[(rf+1)].close < buffer_lower[(rf+1)] && rates[rf].close < rates[min].low && rates[1].low > rates[2].low)
+            {venda = true;}
+               
+         }
+          else
+         {
+            compra = (rates[0].close > buffer_upper[0]);
+            venda = (rates[0].close < buffer_lower[0]);
+         }
+      }
+      else
+      {
+         compra = (rates[0].close > buffer_upper[0]);
+         venda = (rates[0].close < buffer_lower[0]);
+      }   
+
+      if(!bands_invertido)
+      {
+         if(compra)
+            return 1;
+         else if(venda)
+            return -1;
+         else
+            return 0;
+      }
+      else
+      {
+         if(compra)
+            return -1;
+         else if(venda)
+            return 1;
+         else
+            return 0;
+      }
+   }
+   else
+      return 0;
+}
+//---
+bool InicioDia()
+{
+   //Verifica se a data do candle atual é diferente da data do último candle
+   if(TimeToString(iTime(_Symbols, PERIOD_M1, 0), TIME_DATE) != TimeToString(iTime(_Symbols, PERIOD_M1, 1), TIME_DATE))
+      return true;
+   else
+      return false;   
+}
+//---
+bool OperarDia()
+{
+   if(operar_todos_dias)
+      return true;
+   else
+   {
+      if(segunda_feira)
+      {
+         if(horaAtual.day_of_week == 1)
+            return true;
+      }
+      if(terca_feira)
+      {
+         if(horaAtual.day_of_week == 2)
+            return true;
+      }
+      if(quarta_feira)
+      {
+         if(horaAtual.day_of_week == 3)
+            return true;
+      }
+      if(quinta_feira)
+      {
+         if(horaAtual.day_of_week == 4)
+            return true;
+      }
+      if(sexta_feira)
+      {
+         if(horaAtual.day_of_week == 5)
+            return true;
+      }
+      return false;
+   }
+}
+//---
+bool SpreadAceitavel()
+{
+   if(limite_spread <= 0)
+      return true;
+   else
+   {
+      const double spread_normalizado = NormalizePrice(limite_spread);
+      double ask = SymbolInfoDouble(_Symbols, SYMBOL_ASK);
+      double bid = SymbolInfoDouble(_Symbols, SYMBOL_BID);
+      
+      if(ask - bid >= spread_normalizado)
+         return false;
+      else
+         return true;   
+   }   
+}
+//Faz o calculado do prejuízo até o último ganho
+double LossAcumuladoUltimoGanho()
+{
+   double acumulado = 0;   
+   
+   long ids[];
+   if(DadosPosicao(data_inicio_martingale, ids))
+   {
+      int array_size = ArraySize(ids);
+
+      for(int k = array_size -1; k >= 0; k--)
+      {
+         if(HistorySelectByPosition(ids[k]))
+         {
+            double lucro = 0;
+            double volume = 0;
+
+            for(int i = 0; i < HistoryDealsTotal(); i++)//HistoryDealsTotal(); i >= 0; i--)
+            {
+               ulong ticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbols)
+               {
+                  double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                  
+                  if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+                  {
+                     double v = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                     volume += v;
+                  }   
+                  
+                  lucro += profit;
+
+               }
+            }
+            
+            if(lucro <= 0)
+            {
+               acumulado += lucro;
+            }   
+            else
+            {
+               return NormalizeDouble(acumulado, 2);   
+            }   
+            
+         }
+      }
+   }
+   
+   return NormalizeDouble(acumulado, 2);
+
+}
+//---
+void AdicionarSaidaParcialAutomatica(int tipo_posicao, double open, double volume_posicao, double tp)
+{
+   const double lote_calculado = CalcularLote(lote, false);
+   
+   double lote_saida = volume_posicao - lote_calculado;
+   if(lote_saida < lote_calculado)
+      lote_saida = lote_calculado;
+   
+   
+   //Verifica se a saída parcial é menor que o volume da posição
+   if(lote_saida < volume_posicao)
+   {
+      
+      if(tipo_saida_parcial == _saida_automatica)
+      {
+         double volume_saida = 0;
+         double loss_acumulado = LossAcumuladoUltimoGanho();
+              
+         if(loss_acumulado < 0)
+         {
+            loss_acumulado = loss_acumulado * -1;
+         
+            double t_value = SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_VALUE);
+            double t_size = SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_SIZE);
+            
+            //Obtem o valor do tick
+            const double tick_value = (t_size >= 1)? t_value / t_size: t_value;
+            
+            //Tranforma o financeiro em pontos
+            double lote_s = volume_posicao - lote_calculado;
+            if(lote_s < lote_calculado)
+               lote_s = lote_calculado;
+                           
+            double valor_tick = (tick_value * lote_s) / t_size;
+            double acumulado_pontos = loss_acumulado / valor_tick;
+            
+            
+            if(acumulado_pontos > 0)
+            {
+               if(tipo_posicao == 1)
+               {
+                  double preco_saida = Arredondar(open + NormalizePrice(acumulado_pontos));
+                  
+                  preco_saida = Arredondar(preco_saida + (preco_saida * (porcentagem_saida / 100)));
+                  //Print("Valor tick: ", valor_tick, ", Acum Pontos: ", acumulado_pontos, ", tick value: ", tick_value, ", T value: ", t_value, ", t Size: ", t_size, ", Open: ", open, ", Normalize: ", NormalizePrice(acumulado_pontos), ", Loss: ", loss_acumulado, ", Valor Movimentação: ", volume_posicao * valor_tick);
+                  
+                  
+                  //Verifica se a saída parcial é válida em relação ao preço de take profit
+                  if(true)
+                  {
+                     if(conta_netting)
+                        SellLimit(lote_saida, preco_saida, 0, 0, "Saída Parcial");
+                     else
+                     {
+                        string objeto = "Saida Parcial";
+                        if(ObjectCreate(0, objeto, OBJ_HLINE, 0, 0, preco_saida))
+                        {
+                           preco_saida_parcial = preco_saida;
+                           volume_saida_parcial = lote_saida;
+                           
+                           ObjectSetInteger(0, objeto, OBJPROP_COLOR, clrLime);
+                           ObjectSetInteger(0, objeto, OBJPROP_BACK, true);
+                           ObjectSetInteger(0, objeto, OBJPROP_STYLE, STYLE_DASHDOT);
+                        }
+                     }   
+                  }
+               }
+               else
+               {
+                  
+                  double preco_saida = Arredondar(open - NormalizePrice(acumulado_pontos));
+                  
+                  preco_saida = Arredondar(preco_saida - (preco_saida * (porcentagem_saida / 100)));
+                  
+                  //Print("Valor tick: ", valor_tick, ", Acum Pontos: ", acumulado_pontos, ", tick value: ", tick_value, ", T value: ", t_value, ", t Size: ", t_size, ", Open: ", open, ", Normalize: ", NormalizePrice(acumulado_pontos), ", Loss: ", loss_acumulado, ", Valor Movimentação: ", volume_posicao * valor_tick);
+                  
+                  //Verifica se a saída parcial é válida em relação ao preço de take profit
+                  if(true)
+                  {  
+                     if(conta_netting)
+                        BuyLimit(lote_saida, preco_saida, 0, 0, "Saída Parcial");
+                     else
+                     {
+                        string objeto = "Saida Parcial";
+                        if(ObjectCreate(0, objeto, OBJ_HLINE, 0, 0, preco_saida))
+                        {
+                           preco_saida_parcial = preco_saida;
+                           volume_saida_parcial = lote_saida;
+                           
+                           ObjectSetInteger(0, objeto, OBJPROP_COLOR, clrLime);
+                           ObjectSetInteger(0, objeto, OBJPROP_BACK, true);
+                           ObjectSetInteger(0, objeto, OBJPROP_STYLE, STYLE_DASHDOT);
+                        }
+                     }   
+                  }
+               }
+            }   
+         }   
+      }   
+   }   
+}
+//---
+void VerificarSaidaParcialAutomatica()
+{
+   
+   if(preco_saida_parcial != 0 && volume_saida_parcial != 0)
+   {
+      int tipo_posicao = TipoPosicao();
+      
+      if(tipo_posicao == 1)
+      {
+         if(rates[0].close >= preco_saida_parcial)
+         {
+            if(FecharParcialAutomatica(volume_saida_parcial))
+            {
+               Print("Saída parcial automática realizada no ", _Symbols, ", Volume: ", volume_saida_parcial);
+               ObjectDelete(0, "Saida Parcial");
+               volume_saida_parcial = 0;
+               preco_saida_parcial = 0;
+               ChartRedraw();
+            }
+         }   
+      }
+      else
+      {
+         
+         if(rates[0].close <= preco_saida_parcial)
+         {
+            if(FecharParcialAutomatica(volume_saida_parcial))
+            {
+               Print("Saída parcial automática realizada no ", _Symbols, ", Volume: ", volume_saida_parcial);
+               ObjectDelete(0, "Saida Parcial");
+               volume_saida_parcial = 0;
+               preco_saida_parcial = 0;
+               ChartRedraw();
+            }
+         }   
+      }
+   }   
+}
+//---
+void DeletarLinhaParcialAutomatica()
+{
+   ObjectDelete(0, "Saida Parcial");
+   ChartRedraw();
+}
+//---
+bool FecharParcialAutomatica(double volume)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         if(trade.PositionClosePartial(ticket, volume))
+         {
+            return true;
+         }
+         else
+         {
+            Print("Erro ao realizar saida parcial ", GetLastError());
+         }
+      }
+   }
+   
+   return false;
+}
+//---
+void AdicionarSaidaParcial(int tipo, double preco, double sl, double tp, double volume_posicao)
+{
+   const double lote_padrao = CalcularLote(lote, false);
+   
+   if(tipo_saida_parcial == _saida_fixa)
+   {
+      for(int i = 0; i < ArraySize(array_distancia_saida); i++)
+      {
+         if(array_distancia_saida[i] > 0 && array_volume_saida[i] > 0)
+         {  
+            double lote_calculado = CalcularLote(volume_posicao - array_volume_saida[i], false);
+            
+            //Verificas e o volume da posição permite realizar a saída parcial
+            if(volume_posicao > lote_calculado)
+            {
+            
+               //Verifica qual o tipo da conta para posicionar as saidas parcias
+               if(conta_netting)
+               {
+                  //Verifica se a posição incial é posição de compra para posicionar a saída parcial
+                  if(tipo == 1)
+                     SellLimit(lote_calculado, preco + NormalizePrice(array_distancia_saida[i]), 0, 0, "Saida Parcial");
+                  else
+                     BuyLimit(lote_calculado, preco - NormalizePrice(array_distancia_saida[i]), 0, 0, "Saida Parcial");
+               }
+               else
+               {
+                  string volume = DoubleToString(lote_calculado, 2);
+      
+                  if(tipo == 1)
+                  {
+                     if(ObjectCreate(0, volume + ", saida" + IntegerToString(i), OBJ_HLINE, 0, 0, preco + NormalizePrice(array_distancia_saida[i])))
+                     {
+                        ObjectSetInteger(0, volume + ", saida" + IntegerToString(i), OBJPROP_COLOR, clrLime);
+                        ObjectSetInteger(0, volume + ", saida" + IntegerToString(i), OBJPROP_BACK, true);
+                        ObjectSetInteger(0, volume + ", saida" + IntegerToString(i), OBJPROP_STYLE, STYLE_DASHDOT);
+                        ChartRedraw();
+                     }
+                  }
+                  else
+                  {
+                     if(ObjectCreate(0, volume + ", saida" + IntegerToString(i), OBJ_HLINE, 0, 0, preco - NormalizePrice(array_distancia_saida[i])))
+                     {
+                        ObjectSetInteger(0, volume + ", saida" + IntegerToString(i), OBJPROP_COLOR, clrLime);
+                        ObjectSetInteger(0, volume + ", saida" + IntegerToString(i), OBJPROP_BACK, true);
+                        ObjectSetInteger(0, volume + ", saida" + IntegerToString(i), OBJPROP_STYLE, STYLE_DASHDOT);
+                        
+                        ChartRedraw();
+                     }
+                  }
+               }
+            }      
+         }
+      }
+   }   
+}
+//---
+void VerificarSaidaParcial()
+{
+   int total = ObjectsTotal(0);
+   //Sepapara as virgulas do parâmetro e transforma para o tipo double
+   static string sep = ",";
+   static ushort u_sep = StringGetCharacter(sep, 0);
+
+   string volume_saida[];
+
+   for(int i = total - 1; i >= 0; i--)
+   {
+      string nome_objeto = ObjectName(0, i);
+
+      if(StringFind(nome_objeto, "saida") >= 0)
+      {
+         double saida = ObjectGetDouble(0, nome_objeto, OBJPROP_PRICE);
+
+         if(saida > 0)
+         {
+            StringSplit(nome_objeto, u_sep, volume_saida);
+            double lote_saida = StringToDouble(volume_saida[0]);
+
+            if(TipoPosicao() == 1)
+            {
+               if(rates[0].close > saida)
+                  FecharParcial(nome_objeto, lote_saida);
+            }
+            else
+            {
+               if(rates[0].close < saida)
+                  FecharParcial(nome_objeto, lote_saida);
+            }
+         }
+      }
+   }
+}
+//Realiza a saida parcial a mercado
+void FecharParcial(string nome, double lote_saida)
+{
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      PositionSelectByTicket(ticket);
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbols)
+      {
+         if(trade.PositionClosePartial(ticket, lote_saida))
+         {
+            ObjectDelete(0, nome);
+            ChartRedraw();
+            return;
+         }
+         else
+         {
+            Print("Erro ao realizar saida parcial no ", PositionGetString(POSITION_SYMBOL), ", Erro: ", GetLastError());
+         }
+      }
+
+   }
+}
+//---
+bool DeletarLinhaParcial()
+{
+   int total_linhas = 0;
+   int total_linhas_deletadas = 0;
+
+   static int totalLast = 0;
+
+   int total = ObjectsTotal(0);
+
+   if(total == totalLast)
+      return false;
+
+   totalLast = total;
+
+   for(int i = total - 1; i >= 0; i--)
+   {
+      if(StringFind(ObjectName(0, i), "saida") >= 0)
+      {
+         total_linhas++;
+
+         if(ObjectDelete(0, ObjectName(0, i)))
+         {
+            total_linhas_deletadas++;
+            Print("Linha parcial deletada deletada no ", _Symbols);
+         }
+      }
+   }
+
+   if(total_linhas == total_linhas_deletadas)
+      return true;
+   else
+      return false;
+}
+string TempoRestanteCandle(datetime openTime, ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT)
+{
+   int timeleft = PeriodSeconds(timeframe) - (int)(TimeCurrent() - openTime);
+   return(TimeToString(timeleft, TIME_MINUTES | TIME_SECONDS));
+
+}
+//---
+double PontosRestantesGanho(double volume)
+{
+   if(ganho_diaria > 0)
+   {
+      const double tick_value = SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_VALUE) / SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_SIZE);
+      
+      if(tick_value > 0)
+      {
+         double lucro = LucroDia();
+         double restante = ganho_diaria - lucro;
+         
+         double pontos_restantes = (restante * volume) / tick_value;
+         
+         return pontos_restantes;
+         
+      }
+      else
+         return 0;   
+   }
+   else
+      return 0;      
+}
+double PontosRestantesPerda(double volume)
+{
+   if(perda_diaria != 0)
+   {
+      const double tick_value = SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_VALUE) / SymbolInfoDouble(_Symbols, SYMBOL_TRADE_TICK_SIZE);
+      
+      if(tick_value > 0)
+      {
+         const double perda = (perda_diaria > 0)? perda_diaria: perda_diaria * -1;
+         double lucro = LucroDia();
+         double restante = perda + lucro;
+         
+         double pontos_restantes = (restante * volume) / tick_value;
+         
+         return pontos_restantes;
+         
+      }
+      else
+         return 0;   
+   }
+   else
+      return 0;      
+}
+//---
+bool ContaCadastrada()
+{
+   int array_size = ArraySize(contas);
+   
+   long numero_conta = AccountInfoInteger(ACCOUNT_LOGIN);
+   
+   for(int i = 0; i < array_size; i++)
+   {
+      if(contas[i] == 0)
+         return true;
+         
+      if(contas[i] == numero_conta)
+         return true;
+   }
+   
+   return false;
+}
+//---
+void BreakEven()
+{
+   const double lote_normalizado = LoteNormalizado(lote);
+   
+   bool permissao_breakeven = false;
+   
+   //Verifica se não tem nenhuma operação de martingale
+   if(usar_martingale && multiplicador_martingale > 0 && qtd_martingale > 0)
+   {
+      if(VolumeMartingale() == lote_normalizado)
+         permissao_breakeven = true;
+   }
+   else
+      permissao_breakeven = true;
+   
+   
+   if(permissao_breakeven)
+   {
+   
+      double linha_acionamento = ObjectGetDouble(0, "*breakeven", OBJPROP_PRICE);
+      double preco_abertura = PrecoMedio();
+      
+      double distancia_normalizada = NormalizePrice(distancia_break1);
+      double ponto_normlizado = NormalizePrice(pontos_break1);
+      
+      int qtd_posicoes = 0;
+      int qtd_breakeven_realizado = 0;
+   
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         
+         if(conta_netting)
+            PositionSelect(_Symbol);
+         else   
+            PositionSelectByTicket(ticket);
+   
+   
+         if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbol)
+         {
+            double sl = PositionGetDouble(POSITION_SL);
+            double tp = PositionGetDouble(POSITION_TP);
+            
+            qtd_posicoes++;
+            
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            {
+               double preco_acionamento = preco_abertura + distancia_normalizada;
+   
+               //Posiciona a linha imaginaria do break even
+               CriarLinhaReferencia("*breakeven", preco_acionamento, clrGold);
+   
+               double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+               
+               //Verifica se o preço é atingiu o preço de acionamento do breakeven
+               if(bid >= preco_acionamento && bid > 0)
+               {
+                  //Verifica se o breakeven não foi realizado
+                  if(sl < preco_abertura || sl == 0)
+                  {
+                     double novo_sl = preco_abertura + ponto_normlizado;
+      
+                     //Verifica se o novo stop é diferente do atual
+                     if(novo_sl != sl)
+                     {
+                        //Verifica se o preço é válido para posicionar o novo stop
+                        if(bid > novo_sl)
+                        {
+                           //Alterar o stop loss
+                           if(trade.PositionModify(ticket, novo_sl, tp))
+                           {
+                              ObjectDelete(0, "*breakeven");
+                              qtd_breakeven_realizado++;
+                              Mostre("Sucesso ao realizar break even da operação de compra no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp);
+                           }
+                           else
+                              Mostre("Erro ao realizar break even da operação de compra no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp + ", Bid referência: " + (string)ticks.bid + ", Ask referência: " + (string)ticks.ask + ", Preço atual: " + (string)rates[0].close + "Bid Atual: " + (string)SymbolInfoDouble(_Symbol, SYMBOL_BID) + "Ask Atual: " + (string)SymbolInfoDouble(_Symbol, SYMBOL_ASK) + ", Erro: " + (string)GetLastError());
+                        }
+                     }
+                  }   
+               }
+            }
+            else
+            {
+               double preco_acionamento = preco_abertura - distancia_normalizada;
+               
+               
+               
+               //Posiciona a linha imaginaria do break even
+               CriarLinhaReferencia("*breakeven", preco_acionamento, clrGold);
+   
+               double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+               
+               //Verifica se o preço é menor que a abertura mais o valor do array definido no OnInit(), e verifica se o array terminou caso tenha terminado valor zero
+               if(ask <= preco_acionamento && ask > 0)
+               {
+                  //Verifica se o breakeven não foi realizado
+                  if(sl > preco_abertura || sl == 0)
+                  {
+                     double novo_sl = preco_abertura - ponto_normlizado;
+      
+                     //Verifica se o novo stop é diferente do atual
+                     if(novo_sl != sl)
+                     {
+                        //Verifica se o preço do novo stop é válido
+                        if(ask < novo_sl)
+                        {
+                           if(trade.PositionModify(ticket, novo_sl, tp))
+                           {
+                              ObjectDelete(0, "*breakeven");
+                              Mostre("Sucesso ao realizar break even da operação de venda no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp);
+                              qtd_breakeven_realizado++;
+                           }
+                           else
+                              Mostre("Erro ao realizar break even da operação de venda no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp + ", Preço atual: " + (string)rates[0].close + ", Bid referência: " + (string)ticks.bid + ", Ask referência: " + (string)ticks.ask + ", Preço atual: " + (string)rates[0].close + "Bid Atual: " + (string)SymbolInfoDouble(_Symbol, SYMBOL_BID) + "Ask Atual: " + (string)SymbolInfoDouble(_Symbol, SYMBOL_ASK) + ", Erro: " + (string)GetLastError());
+                        }
+                     }
+                  }   
+               }
+            }
+         }
+      }
+   }   
+   
+}
+//---
+void StopMovel()
+{
+   double linha_acionamento = ObjectGetDouble(0, "*stopmovel", OBJPROP_PRICE);
+   double open = PrecoMedio();
+
+   for(int i = PositionsTotal() - 1 ; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!conta_netting)
+         PositionSelectByTicket(ticket);
+      else
+         PositionSelect(_Symbol);
+
+      if(PositionGetInteger(POSITION_MAGIC) == numero_magico && PositionGetString(POSITION_SYMBOL) == _Symbol)
+      {
+         double sl = PositionGetDouble(POSITION_SL);
+         double tp = PositionGetDouble(POSITION_TP);
+
+         //Verifica se tem algum stop loss definido
+         if(sl > 0)
+         {
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            {
+               double preco_acionamento = open + NormalizePrice(preco_stop_movel);
+
+               //Cria a linha de referência do stop móvel
+               CriarLinhaReferencia("*stopmovel", preco_acionamento, clrLightBlue);
+
+               if(rates[0].close >= preco_acionamento && preco_stop_movel != 0)
+               {
+                  static double ponto_normalizado = NormalizePrice(pontos);
+
+                  double novo_sl = sl + ponto_normalizado;
+
+                  //Verifica se o novo sl é diferente do atual
+                  if(novo_sl != sl)
+                  {
+                     //Verifica se o preço do novo sl é válido
+                     if(ticks.bid > novo_sl)
+                     {
+                        if(trade.PositionModify(ticket, novo_sl, tp))
+                        {
+                           if(MQLInfoInteger(MQL_VISUAL_MODE))
+                              ObjectDelete(0, "*stopmovel");
+
+                           preco_stop_movel += pontos;
+
+                           Mostre("Sucesso ao realizar stop móvel da operação de compra no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp);
+                        }
+                        else
+                           Mostre("Erro ao realizar stop móvel da operação de compra no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp + ", Erro: " + (string)GetLastError());
+                     }
+                  }
+               }
+            }
+            else
+            {
+               double preco_acionamento = open - NormalizePrice(preco_stop_movel);
+
+               //Cria a linha de referência do stop móvel
+               CriarLinhaReferencia("*stopmovel", preco_acionamento, clrLightBlue);
+
+               if(rates[0].close <= preco_acionamento && preco_stop_movel != 0)
+               {
+                  static double ponto_normalizado = NormalizePrice(pontos);
+
+                  double novo_sl = sl - ponto_normalizado;
+
+                  //Verifica se o novo sl é diferente do atual
+                  if(novo_sl != sl)
+                  {
+                     //Verifica se o preço do novo sl é válido
+                     if(ticks.ask < novo_sl)
+                     {
+                        if(trade.PositionModify(ticket, novo_sl, tp))
+                        {
+                           if(MQLInfoInteger(MQL_VISUAL_MODE))
+                              ObjectDelete(0, "*stopmovel");
+
+                           preco_stop_movel += pontos;
+
+                           Mostre("Sucesso ao realizar stop móvel da operação de venda no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp);
+                        }
+                        else
+                           Mostre("Erro ao realizar stop móvel da operação de venda no " + PositionGetString(POSITION_SYMBOL) + ", Sl: " + (string)sl + ", Tp: " + (string)tp + " -> Sl: " + (string)novo_sl + ", Tp: " + (string)tp + ", Erro: " + (string)GetLastError());
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+}
+//---
+double LoteNormalizado(double l)
+{
+   const double volume_minimo = SymbolInfoDouble(_Symbols, SYMBOL_VOLUME_MIN);
+   const double volume_maximo = SymbolInfoDouble(_Symbols, SYMBOL_VOLUME_MAX);
+   
+   
+   if(volume_minimo >= 1)
+   {
+      //Faz com o lote seja um múltiplo ceto
+      double resto = MathMod(l, volume_minimo);
+      l = l - resto;
+   }   
+
+   if(l >= volume_minimo && l <= volume_maximo)
+      return NormalizeDouble(l, 2);
+   else if(l < volume_minimo)
+      return NormalizeDouble(volume_minimo, 2);
+   else if(l > volume_maximo)
+      return NormalizeDouble(volume_maximo, 2);
+   else
+      return -1;
+}
